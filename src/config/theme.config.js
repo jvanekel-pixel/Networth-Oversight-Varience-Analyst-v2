@@ -1,0 +1,62 @@
+const theme = {
+  appName: 'N.O.V.A.',
+  appSubtitle: 'Net Worth Oversight Variance Analyst',
+
+  background: '#050510',
+  backgroundSecondary: '#0d0d1a',
+  backgroundPanel: '#0a0a1f',
+  backgroundCard: '#0f0f20',
+  accent: '#00FFD1',
+  accentSecondary: '#7B2FBE',
+  accentGlow: 'rgba(0,255,209,0.15)',
+  accentGlowStrong: 'rgba(0,255,209,0.35)',
+  textPrimary: '#E0E0FF',
+  textSecondary: '#7878AA',
+  textDim: '#3A3A5C',
+  borderColor: 'rgba(0,255,209,0.2)',
+  borderColorDim: 'rgba(0,255,209,0.08)',
+
+  statusPositive: '#00FFD1',
+  statusWarning: '#FFD700',
+  statusDanger: '#FF4455',
+  statusNeutral: '#4455AA',
+  statusPositiveBg: 'rgba(0,255,209,0.1)',
+  statusWarningBg: 'rgba(255,215,0,0.1)',
+  statusDangerBg: 'rgba(255,68,85,0.1)',
+  statusNeutralBg: 'rgba(68,85,170,0.1)',
+
+  fontPrimary: 'monospace',
+  fontDisplay: 'monospace',
+  fontSizeXS: 10,
+  fontSizeSM: 12,
+  fontSizeMD: 14,
+  fontSizeLG: 16,
+  fontSizeXL: 20,
+  fontSizeXXL: 28,
+  fontSizeDisplay: 36,
+
+  spacingXS: 4,
+  spacingSM: 8,
+  spacingMD: 16,
+  spacingLG: 24,
+  spacingXL: 32,
+  spacingXXL: 48,
+
+  borderRadiusSM: 4,
+  borderRadiusMD: 8,
+  borderRadiusLG: 16,
+  borderRadiusXL: 24,
+
+  tabDashboard: 'DASHBOARD',
+  tabHousehold: 'HOUSEHOLD',
+  tabPersonal: 'PERSONAL',
+  tabBusiness: 'BUSINESS',
+  tabSettings: 'SETTINGS',
+
+  faceAsset: 'nova-face-v1',
+  dialogueAsset: 'nova-starter-pool',
+  iconAsset: './assets/icon.png',
+  splashAsset: './assets/splash.png',
+};
+
+export default theme;
