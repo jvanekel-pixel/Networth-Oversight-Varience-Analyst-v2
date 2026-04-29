@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentWeekStart } from '../utils/dates';
+import { computeProfileVariance } from '../utils/forecasting';
 
 const KEYS = {
   onboardingComplete: 'nova_v2_onboardingComplete',
@@ -522,6 +523,7 @@ const useStore = create((set, get) => ({
     };
     set({ groceryBudget: updatedBudget });
     await AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget));
+    get().recomputeVariance();
   },
 
   logGrocerySpend: async (amountCents) => {
@@ -614,10 +616,26 @@ const useStore = create((set, get) => ({
     get().recomputeVariance();
   },
 
-  // Stub for Part 2 — upgraded to call real forecasting logic in Part 1
   recomputeVariance: () => {
-    const { varianceCache } = get();
-    set({ varianceCache: { ...varianceCache, lastComputedAt: Date.now() } });
+    const state = get();
+    const now = Date.now();
+    const profiles = ['household', 'personal', 'business'];
+    const newCache = { ...state.varianceCache, lastComputedAt: now };
+
+    for (const profile of profiles) {
+      newCache[profile] = computeProfileVariance({
+        profile,
+        accounts: state.accounts,
+        accountFloors: state.config?.accountFloors || state.accountFloors || {},
+        bills: [...(state.householdBills || []), ...(state.personalBills || [])],
+        incomeEvents: state.incomeEvents,
+        groceryBudget: state.groceryBudget,
+        varianceConfig: state.varianceConfig[profile],
+        now,
+      });
+    }
+
+    set({ varianceCache: newCache });
   },
 
   updateVarianceConfig: async (profile, updates) => {
