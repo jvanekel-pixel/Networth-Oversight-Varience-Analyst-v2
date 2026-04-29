@@ -45,6 +45,7 @@ const theme = {
   borderRadiusSM: 4,
   borderRadiusMD: 8,
   borderRadiusLG: 16,
+  radiusLG: 16,
   borderRadiusXL: 24,
 
   tabDashboard: 'DASHBOARD',

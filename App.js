@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { enableScreens } from 'react-native-screens';
@@ -24,11 +24,22 @@ export default function App() {
   const onboardingComplete = useStore((s) => s.onboardingComplete);
   const initStore = useStore((s) => s.initStore);
   const rotateFlavorText = useStore((s) => s.rotateFlavorText);
+  const checkCycleReset = useStore((s) => s.checkCycleReset);
+  const recomputeVariance = useStore((s) => s.recomputeVariance);
 
   useEffect(() => {
     initStore().then(() => {
       rotateFlavorText(personality.starterPool);
+      checkCycleReset();
+      recomputeVariance();
     });
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') checkCycleReset();
+    });
+    return () => sub.remove();
   }, []);
 
   if (!onboardingComplete) {
