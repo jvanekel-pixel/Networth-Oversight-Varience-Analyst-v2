@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Switch, Alert } from 'react-native';
 import theme from '../config/theme.config';
 import { parseCentsInput, formatCents, formatCentsShort, parseBillInput } from '../utils/currency';
 
@@ -379,7 +379,7 @@ export function MarkPaidModal({ visible, bill, accountOptions = [], onSubmit, on
   );
 }
 
-export function EditBillModal({ visible, bill, accountOptions = [], onSubmit, onClose }) {
+export function EditBillModal({ visible, bill, accountOptions = [], onSubmit, onDelete, onClose }) {
   const [name, setName] = useState('');
   const [amountRaw, setAmountRaw] = useState('');
   const [dueDayRaw, setDueDayRaw] = useState('');
@@ -479,6 +479,23 @@ export function EditBillModal({ visible, bill, accountOptions = [], onSubmit, on
           <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
             <Text style={styles.cancelText}>CANCEL</Text>
           </TouchableOpacity>
+          {onDelete && (
+            <TouchableOpacity
+              style={styles.deleteBillBtn}
+              onPress={() => {
+                Alert.alert(
+                  `Delete ${bill?.name || 'Bill'}?`,
+                  "This can't be undone.",
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => { onDelete(); onClose(); } },
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.deleteBillText}>DELETE BILL</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </Modal>
@@ -574,7 +591,7 @@ export function EditTransactionModal({ visible, transaction, onSubmit, onClose }
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: theme.overlayBg,
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacingLG,
@@ -681,6 +698,17 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     fontFamily: theme.fontPrimary,
     fontSize: theme.fontSizeSM,
+  },
+  deleteBillBtn: {
+    padding: theme.spacingSM,
+    alignItems: 'center',
+    marginTop: theme.spacingXS,
+  },
+  deleteBillText: {
+    color: theme.statusDanger,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeSM,
+    fontWeight: 'bold',
   },
   dateRow: {
     flexDirection: 'row',

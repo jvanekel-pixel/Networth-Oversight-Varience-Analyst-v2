@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 import Svg, { Ellipse, Circle, Path, Text as SvgText, Defs, RadialGradient, Stop } from 'react-native-svg';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
@@ -10,22 +12,22 @@ function NovaFace({ size = 80 }) {
     <Svg width={size} height={size} viewBox="0 0 100 100">
       <Defs>
         <RadialGradient id="faceGlow" cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor="#4ade80" stopOpacity="0.06" />
-          <Stop offset="100%" stopColor="#4ade80" stopOpacity="0" />
+          <Stop offset="0%" stopColor="{theme.faceColor}" stopOpacity="0.06" />
+          <Stop offset="100%" stopColor="{theme.faceColor}" stopOpacity="0" />
         </RadialGradient>
       </Defs>
-      <Ellipse cx="50" cy="52" rx="43" ry="45" fill="#06100a" stroke="#4ade80" strokeWidth="1.5" />
+      <Ellipse cx="50" cy="52" rx="43" ry="45" fill={theme.faceColorDim} stroke="{theme.faceColor}" strokeWidth="1.5" />
       <Ellipse cx="50" cy="52" rx="43" ry="45" fill="url(#faceGlow)" />
-      <Path d="M 28 34 Q 36 30 44 34" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M 56 34 Q 64 30 72 34" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Ellipse cx="36" cy="45" rx="7" ry="7" stroke="#4ade80" strokeWidth="1.5" fill="none" />
-      <Circle cx="36" cy="45" r="3.5" fill="#4ade80" fillOpacity="0.65" />
+      <Path d="M 28 34 Q 36 30 44 34" stroke="{theme.faceColor}" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <Path d="M 56 34 Q 64 30 72 34" stroke="{theme.faceColor}" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <Ellipse cx="36" cy="45" rx="7" ry="7" stroke="{theme.faceColor}" strokeWidth="1.5" fill="none" />
+      <Circle cx="36" cy="45" r="3.5" fill="{theme.faceColor}" fillOpacity="0.65" />
       <Circle cx="37.5" cy="43.5" r="1.2" fill="white" fillOpacity="0.3" />
-      <Ellipse cx="64" cy="45" rx="7" ry="7" stroke="#4ade80" strokeWidth="1.5" fill="none" />
-      <Circle cx="64" cy="45" r="3.5" fill="#4ade80" fillOpacity="0.65" />
+      <Ellipse cx="64" cy="45" rx="7" ry="7" stroke="{theme.faceColor}" strokeWidth="1.5" fill="none" />
+      <Circle cx="64" cy="45" r="3.5" fill="{theme.faceColor}" fillOpacity="0.65" />
       <Circle cx="65.5" cy="43.5" r="1.2" fill="white" fillOpacity="0.3" />
-      <Path d="M 37 64 Q 50 71 63 64" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      <SvgText x="50" y="93" textAnchor="middle" fontFamily="monospace" fontSize="5" fill="#4ade80" fillOpacity="0.4">
+      <Path d="M 37 64 Q 50 71 63 64" stroke="{theme.faceColor}" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      <SvgText x="50" y="93" textAnchor="middle" fontFamily="monospace" fontSize="5" fill="{theme.faceColor}" fillOpacity="0.4">
         CONTENT
       </SvgText>
     </Svg>
@@ -68,7 +70,7 @@ export default function NovaHeader() {
 
       <View style={styles.faceRow}>
         <NovaFace size={80} />
-        <Text style={styles.flavorText} numberOfLines={4}>
+        <Text style={styles.flavorText}>
           {currentFlavorText || '...'}
         </Text>
       </View>
@@ -100,11 +102,11 @@ export default function NovaHeader() {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: theme.backgroundSecondary,
-    paddingHorizontal: theme.spacingMD,
     paddingTop: theme.spacingMD,
     paddingBottom: theme.spacingSM,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColorDim,
+    minHeight: SCREEN_HEIGHT * 0.30,
   },
   row: {
     flexDirection: 'row',
@@ -130,8 +132,9 @@ const styles = StyleSheet.create({
   },
   faceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: theme.spacingXS,
+    minHeight: SCREEN_HEIGHT * 0.12,
   },
   flavorText: {
     flex: 1,

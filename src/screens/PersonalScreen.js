@@ -3,8 +3,8 @@ import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, StyleSheet,
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '../utils/currency';
-import { formatDate } from '../utils/dates';
-import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal } from '../components/TransactionModal';
+import { formatDate, timeAgo } from '../utils/dates';
+import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 
 const ACCOUNT_LABELS = {
   entChecking: 'ENT CHECKING',
@@ -104,6 +104,7 @@ export default function PersonalScreen() {
     personalBills,
     billOverrides,
     warnings,
+    transactions,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -111,8 +112,11 @@ export default function PersonalScreen() {
     markBillPaid,
     editBill,
     deleteBill,
+    editTransaction,
+    deleteTransaction,
     checkSpendingFloors,
   } = useStore();
+  const personalVariance = useStore((s) => s.varianceCache.personal);
 
   // Single modal state: { accountKey, modalType } — null means closed
   const [activeModal, setActiveModal] = useState({ accountKey: null, modalType: null });
@@ -120,6 +124,8 @@ export default function PersonalScreen() {
   const [addBillVisible, setAddBillVisible] = useState(false);
   const [markPaidBill, setMarkPaidBill] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
+  const [editingTx, setEditingTx] = useState(null);
+  const [activityMenuTx, setActivityMenuTx] = useState(null);
 
   const handleDeleteBill = (billId) => {
     Alert.alert('Delete Subscription', 'Remove this recurring subscription?', [
@@ -172,6 +178,23 @@ export default function PersonalScreen() {
         <Text style={styles.screenSubtitle}>Personal Accounts + Pay Cycle</Text>
       </View>
 
+      {/* 1b. Personal variance card */}
+      {personalVariance && (() => {
+        const pv = personalVariance;
+        const borderColor = pv.state === 'green' ? theme.statusPositive : pv.state === 'yellow' ? theme.statusWarning : pv.state === 'red' ? theme.statusDanger : theme.borderColorDim;
+        const bgColor = pv.state === 'green' ? theme.statusPositiveBg : pv.state === 'yellow' ? theme.statusWarningBg : pv.state === 'red' ? theme.statusDangerBg : theme.backgroundCard;
+        const varSign = pv.variance > 0 ? '+' : '';
+        const varColor = pv.variance > 0 ? theme.statusPositive : pv.variance < 0 ? theme.statusDanger : theme.textSecondary;
+        return (
+          <View style={[styles.varianceCard, { borderColor, backgroundColor: bgColor }]}>
+            <Text style={styles.varianceLabel}>PERSONAL VARIANCE</Text>
+            <Text style={styles.varianceBalance}>{formatCentsShort(pv.balance)}</Text>
+            <Text style={[styles.varianceAmt, { color: varColor }]}>{varSign}{formatCentsShort(pv.variance)}</Text>
+            <Text style={styles.varianceAnnotation}>{pv.annotation}</Text>
+          </View>
+        );
+      })()}
+
       {/* 2. Four account cards */}
       {PERSONAL_ACCOUNTS.map(key => (
         <AccountCard
@@ -211,7 +234,70 @@ export default function PersonalScreen() {
         </TouchableOpacity>
       </Card>
 
-      {/* 4. Floor warnings */}
+      {/* 4. Recent Activity */}
+      {(() => {
+        const personalAccts = ['entChecking', 'entSavings', 'venmo', 'cash'];
+        const recentTx = [...(transactions || [])]
+          .filter(t => !t.deleted && personalAccts.includes(t.accountKey))
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, 10);
+        return (
+          <View style={styles.activitySection}>
+            <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
+            {recentTx.length === 0 && (
+              <Text style={styles.metaText}>No transactions yet.</Text>
+            )}
+            {recentTx.map(tx => {
+              const isPositive = tx.amountCents > 0;
+              const desc = (tx.description || '').slice(0, 30);
+              const acctLabel = ACCOUNT_LABELS[tx.accountKey] || tx.accountKey;
+              return (
+                <TouchableOpacity
+                  key={tx.id}
+                  style={styles.activityRow}
+                  onLongPress={() => setActivityMenuTx(tx)}
+                  delayLongPress={400}
+                >
+                  <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
+                    {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
+                  </Text>
+                  <View style={styles.activityInfo}>
+                    <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
+                    <Text style={styles.activityMeta}>{acctLabel} · {timeAgo(tx.timestamp)}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        );
+      })()}
+
+      {/* Activity action menu */}
+      <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setActivityMenuTx(null)}>
+          <View style={styles.modalPanel}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
+              <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              const tx = activityMenuTx;
+              setActivityMenuTx(null);
+              Alert.alert(
+                'Delete Transaction',
+                'Delete this transaction? Account balance will be adjusted.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+                ]
+              );
+            }}>
+              <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* 5. Floor warnings */}
       {personalWarnings.length > 0 && (
         <View style={styles.warningCard}>
           {personalWarnings.map((w, i) => (
@@ -239,9 +325,6 @@ export default function PersonalScreen() {
               <View style={styles.billActions}>
                 <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
                   <Text style={styles.editBtnText}>EDIT</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteBill(bill.id)}>
-                  <Text style={styles.deleteBtnText}>DEL</Text>
                 </TouchableOpacity>
                 {paidThisMonth ? (
                   <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
@@ -316,7 +399,14 @@ export default function PersonalScreen() {
           await editBill(editingBill.id, updates);
           setEditingBill(null);
         }}
+        onDelete={() => { deleteBill(editingBill.id); setEditingBill(null); }}
         onClose={() => setEditingBill(null)}
+      />
+      <EditTransactionModal
+        visible={editingTx !== null}
+        transaction={editingTx}
+        onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
+        onClose={() => setEditingTx(null)}
       />
     </ScrollView>
   );
@@ -328,7 +418,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.background,
   },
   content: {
-    padding: theme.spacingMD,
+    paddingVertical: theme.spacingMD,
     paddingBottom: theme.spacingXXL,
   },
   headerStrip: {
@@ -537,10 +627,66 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     fontSize: theme.fontSizeSM,
   },
+  activitySection: {
+    backgroundColor: theme.backgroundCard,
+    borderWidth: 1,
+    borderColor: theme.borderColorDim,
+    borderRadius: theme.borderRadiusMD,
+    padding: theme.spacingMD,
+    marginBottom: theme.spacingMD,
+    marginTop: theme.spacingMD,
+  },
+  activityHeader: {
+    color: theme.textSecondary,
+    fontSize: theme.fontSizeMD,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: theme.spacingSM,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacingXS,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColorDim,
+  },
+  activityAmt: {
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeSM,
+    fontWeight: 'bold',
+    width: 80,
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityDesc: {
+    color: theme.textPrimary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+  },
+  activityMeta: {
+    color: theme.textDim,
+    fontSize: theme.fontSizeXS,
+    fontFamily: theme.fontPrimary,
+    marginTop: 1,
+  },
+  menuItem: {
+    paddingVertical: theme.spacingMD,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColorDim,
+  },
+  menuItemText: {
+    color: theme.textPrimary,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeMD,
+    fontWeight: 'bold',
+  },
   // Modal styles
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: theme.overlayBg,
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacingLG,
@@ -608,5 +754,34 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     fontFamily: theme.fontPrimary,
     fontSize: theme.fontSizeSM,
+  },
+  varianceCard: {
+    padding: theme.spacingLG,
+    borderRadius: theme.radiusLG,
+    borderWidth: 2,
+    marginBottom: theme.spacingMD,
+  },
+  varianceLabel: {
+    color: theme.textSecondary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+    marginBottom: theme.spacingXS,
+  },
+  varianceBalance: {
+    color: theme.textPrimary,
+    fontSize: theme.fontSizeXXL,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  varianceAmt: {
+    fontSize: theme.fontSizeLG,
+    fontFamily: theme.fontPrimary,
+    marginBottom: 2,
+  },
+  varianceAnnotation: {
+    color: theme.textSecondary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
   },
 });

@@ -12,7 +12,11 @@
       "backgroundColor": "#000000"
     },
     "updates": {
-      "enabled": false
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
     },
     "android": {
       "package": "com.copperfelix.novav2",

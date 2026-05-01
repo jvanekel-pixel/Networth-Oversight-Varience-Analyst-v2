@@ -3,8 +3,12 @@ import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, StyleSheet,
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '../utils/currency';
-import { getPartnerDepositDate, formatDate } from '../utils/dates';
-import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal } from '../components/TransactionModal';
+import { getPartnerDepositDate, formatDate, timeAgo, getCurrentWeekStart } from '../utils/dates';
+import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
+
+const ACCOUNT_LABELS_HH = {
+  jointChecking: 'Joint Checking',
+};
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -143,18 +147,24 @@ export default function HouseholdScreen() {
     accounts,
     incomeEvents,
     groceryBudget,
+    groceryEntries,
     householdBills,
     billOverrides,
     warnings,
+    transactions,
     logTransaction,
     updateAccountBalance,
     recordPartnerDeposit,
     logGrocerySpend,
     updateGroceryBudget,
+    editGroceryEntry,
+    deleteGroceryEntry,
     addHouseholdBill,
     markBillPaid,
     editBill,
     deleteBill,
+    editTransaction,
+    deleteTransaction,
     checkSpendingFloors,
   } = useStore();
 
@@ -166,6 +176,10 @@ export default function HouseholdScreen() {
   const [addBillVisible, setAddBillVisible] = useState(false);
   const [markPaidBill, setMarkPaidBill] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
+  const [editingTx, setEditingTx] = useState(null);
+  const [activityMenuTx, setActivityMenuTx] = useState(null);
+  const [editingGrocery, setEditingGrocery] = useState(null);
+  const [editGroceryRaw, setEditGroceryRaw] = useState('');
 
   const handleDeleteBill = (billId) => {
     Alert.alert('Delete Bill', 'Remove this bill from your household?', [
@@ -185,6 +199,12 @@ export default function HouseholdScreen() {
   const depositDatePast = now > expectedDepositDate;
 
   const { weeklyLimit = 0, currentWeekSpend = 0 } = groceryBudget || {};
+  const thisWeekEntries = (() => {
+    const ws = getCurrentWeekStart();
+    return [...(groceryEntries || [])]
+      .filter(e => !e.deleted && e.weekStartDate === ws)
+      .sort((a, b) => b.timestamp - a.timestamp);
+  })();
   const groceryPct = weeklyLimit > 0 ? currentWeekSpend / weeklyLimit : 0;
   const groceryBarColor = groceryPct >= 0.95
     ? theme.statusDanger
@@ -272,6 +292,31 @@ export default function HouseholdScreen() {
         <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setGroceryVisible(true)}>
           <Text style={styles.btnText}>LOG GROCERY SPEND</Text>
         </TouchableOpacity>
+        {thisWeekEntries.length > 0 && thisWeekEntries.map(entry => (
+          <TouchableOpacity
+            key={entry.id}
+            style={styles.groceryEntryRow}
+            onLongPress={() => {
+              Alert.alert(
+                formatCents(entry.amountCents),
+                timeAgo(entry.timestamp),
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Edit', onPress: () => { setEditingGrocery(entry); setEditGroceryRaw((entry.amountCents / 100).toFixed(2)); } },
+                  { text: 'Delete', style: 'destructive', onPress: () => {
+                    Alert.alert('Delete entry?', 'Week spend will be recalculated.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteGroceryEntry(entry.id) },
+                    ]);
+                  }},
+                ]
+              );
+            }}
+          >
+            <Text style={styles.groceryEntryAmt}>{formatCents(entry.amountCents)}</Text>
+            <Text style={styles.groceryEntryMeta}>{timeAgo(entry.timestamp)}</Text>
+          </TouchableOpacity>
+        ))}
       </Card>
 
       {/* 5. Household Bills */}
@@ -292,9 +337,6 @@ export default function HouseholdScreen() {
                 <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
                   <Text style={styles.editBtnText}>EDIT</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteBill(bill.id)}>
-                  <Text style={styles.deleteBtnText}>DEL</Text>
-                </TouchableOpacity>
                 {paidThisMonth ? (
                   <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
                 ) : (
@@ -311,7 +353,44 @@ export default function HouseholdScreen() {
         </TouchableOpacity>
       </Card>
 
-      {/* 6. Floor warnings */}
+      {/* 6. Recent Activity */}
+      {(() => {
+        const recentTx = [...(transactions || [])]
+          .filter(t => !t.deleted && t.accountKey === 'jointChecking')
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, 10);
+        return (
+          <View style={styles.activitySection}>
+            <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
+            {recentTx.length === 0 && (
+              <Text style={styles.metaText}>No transactions yet.</Text>
+            )}
+            {recentTx.map(tx => {
+              const isPositive = tx.amountCents > 0;
+              const desc = (tx.description || '').slice(0, 30);
+              const acctLabel = ACCOUNT_LABELS_HH[tx.accountKey] || tx.accountKey;
+              return (
+                <TouchableOpacity
+                  key={tx.id}
+                  style={styles.activityRow}
+                  onLongPress={() => setActivityMenuTx(tx)}
+                  delayLongPress={400}
+                >
+                  <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
+                    {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
+                  </Text>
+                  <View style={styles.activityInfo}>
+                    <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
+                    <Text style={styles.activityMeta}>{acctLabel} · {timeAgo(tx.timestamp)}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        );
+      })()}
+
+      {/* 7. Floor warnings */}
       {jointWarnings.length > 0 && (
         <View style={styles.warningCard}>
           {jointWarnings.map((w, i) => (
@@ -321,6 +400,31 @@ export default function HouseholdScreen() {
           ))}
         </View>
       )}
+
+      {/* Activity action menu */}
+      <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setActivityMenuTx(null)}>
+          <View style={styles.modalPanel}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
+              <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              const tx = activityMenuTx;
+              setActivityMenuTx(null);
+              Alert.alert(
+                'Delete Transaction',
+                'Delete this transaction? Account balance will be adjusted.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+                ]
+              );
+            }}>
+              <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Modals */}
       <LogTransactionModal
@@ -378,8 +482,49 @@ export default function HouseholdScreen() {
           await editBill(editingBill.id, updates);
           setEditingBill(null);
         }}
+        onDelete={() => { deleteBill(editingBill.id); setEditingBill(null); }}
         onClose={() => setEditingBill(null)}
       />
+      <EditTransactionModal
+        visible={editingTx !== null}
+        transaction={editingTx}
+        onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
+        onClose={() => setEditingTx(null)}
+      />
+      <Modal visible={editingGrocery !== null} transparent animationType="fade" onRequestClose={() => setEditingGrocery(null)}>
+        <View style={styles.backdrop}>
+          <View style={styles.modalPanel}>
+            <Text style={styles.modalTitle}>EDIT GROCERY ENTRY</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="0.00"
+              placeholderTextColor={theme.textDim}
+              keyboardType="decimal-pad"
+              value={editGroceryRaw}
+              onChangeText={setEditGroceryRaw}
+            />
+            {editGroceryRaw.length > 0 && (
+              <Text style={styles.modalPreview}>{formatCents(parseBillInput(editGroceryRaw))}</Text>
+            )}
+            <TouchableOpacity
+              style={styles.modalSubmit}
+              onPress={async () => {
+                const amt = parseBillInput(editGroceryRaw);
+                if (amt > 0 && editingGrocery) {
+                  await editGroceryEntry(editingGrocery.id, { amountCents: amt });
+                  setEditingGrocery(null);
+                  setEditGroceryRaw('');
+                }
+              }}
+            >
+              <Text style={styles.modalSubmitText}>SAVE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => { setEditingGrocery(null); setEditGroceryRaw(''); }}>
+              <Text style={styles.modalCancelText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -390,7 +535,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.background,
   },
   content: {
-    padding: theme.spacingMD,
+    paddingVertical: theme.spacingMD,
     paddingBottom: theme.spacingXXL,
   },
   headerStrip: {
@@ -596,10 +741,66 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     fontSize: theme.fontSizeSM,
   },
+  activitySection: {
+    backgroundColor: theme.backgroundCard,
+    borderWidth: 1,
+    borderColor: theme.borderColorDim,
+    borderRadius: theme.borderRadiusMD,
+    padding: theme.spacingMD,
+    marginBottom: theme.spacingMD,
+    marginTop: theme.spacingMD,
+  },
+  activityHeader: {
+    color: theme.textSecondary,
+    fontSize: theme.fontSizeMD,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: theme.spacingSM,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacingXS,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColorDim,
+  },
+  activityAmt: {
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeSM,
+    fontWeight: 'bold',
+    width: 80,
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityDesc: {
+    color: theme.textPrimary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+  },
+  activityMeta: {
+    color: theme.textDim,
+    fontSize: theme.fontSizeXS,
+    fontFamily: theme.fontPrimary,
+    marginTop: 1,
+  },
+  menuItem: {
+    paddingVertical: theme.spacingMD,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColorDim,
+  },
+  menuItemText: {
+    color: theme.textPrimary,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeMD,
+    fontWeight: 'bold',
+  },
   // Modal styles
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: theme.overlayBg,
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacingLG,
@@ -661,5 +862,24 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     fontFamily: theme.fontPrimary,
     fontSize: theme.fontSizeSM,
+  },
+  groceryEntryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: theme.spacingXS,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColorDim,
+    marginTop: theme.spacingXS,
+  },
+  groceryEntryAmt: {
+    color: theme.textPrimary,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeSM,
+  },
+  groceryEntryMeta: {
+    color: theme.textDim,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeXS,
   },
 });

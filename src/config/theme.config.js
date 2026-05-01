@@ -54,6 +54,11 @@ const theme = {
   tabBusiness: 'BUSINESS',
   tabSettings: 'SETTINGS',
 
+  overlayBg: 'rgba(0,0,0,0.7)',
+  faceColor: '#4ade80',
+  faceColorDim: '#06100a',
+  calendarBillColor: '#4488FF',
+
   faceAsset: 'nova-face-v1',
   dialogueAsset: 'nova-starter-pool',
   iconAsset: './assets/icon.png',

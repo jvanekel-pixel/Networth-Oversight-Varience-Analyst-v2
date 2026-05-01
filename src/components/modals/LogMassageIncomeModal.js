@@ -83,7 +83,7 @@ export default function LogMassageIncomeModal({ visible, onClose, onConfirm }) {
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, backgroundColor: theme.overlayBg, justifyContent: 'flex-end' },
   sheet: { backgroundColor: theme.backgroundCard, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24 },
   title: { color: theme.accent, fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, marginBottom: 20, fontWeight: 'bold' },
   label: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: 4, marginTop: 12 },

@@ -9,6 +9,9 @@ const randomLine = personality.starterPool[Math.floor(Math.random() * personalit
 
 export default function OnboardingScreen() {
   const setOnboardingComplete = useStore((s) => s.setOnboardingComplete);
+  const householdBills = useStore((s) => s.householdBills);
+  const personalBills = useStore((s) => s.personalBills);
+  const billsEmpty = (!householdBills || householdBills.length === 0) && (!personalBills || personalBills.length === 0);
 
   return (
     <View style={styles.container}>
@@ -18,6 +21,11 @@ export default function OnboardingScreen() {
       <TouchableOpacity style={styles.button} onPress={setOnboardingComplete}>
         <Text style={styles.buttonText}>BEGIN SETUP</Text>
       </TouchableOpacity>
+      {billsEmpty && (
+        <View style={styles.nudge}>
+          <Text style={styles.nudgeText}>Add your bill schedule in Settings to unlock full variance forecasting.</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -61,5 +69,20 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     fontWeight: 'bold',
     letterSpacing: 2,
+  },
+  nudge: {
+    backgroundColor: theme.statusNeutralBg,
+    borderWidth: 1,
+    borderColor: theme.statusNeutral,
+    borderRadius: theme.borderRadiusMD,
+    padding: theme.spacingMD,
+    marginTop: theme.spacingLG,
+    marginHorizontal: theme.spacingMD,
+  },
+  nudgeText: {
+    color: theme.textSecondary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+    textAlign: 'center',
   },
 });

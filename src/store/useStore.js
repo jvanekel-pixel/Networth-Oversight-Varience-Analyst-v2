@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentWeekStart } from '../utils/dates';
 import { computeProfileVariance } from '../utils/forecasting';
+import { scheduleLocalNotification } from '../utils/notifications';
+import notificationsConfig from '../config/notifications.config';
 
 const KEYS = {
   onboardingComplete: 'nova_v2_onboardingComplete',
@@ -34,6 +36,7 @@ const KEYS = {
   MASSAGE_EXPENSES: 'nova_v2_massageExpenses',
   CLEANING_EXPENSES: 'nova_v2_cleaningExpenses',
   CLEANING_MILEAGE: 'nova_v2_cleaningMileage',
+  groceryStreakWeeks: 'nova_v2_grocery_streak_weeks',
 };
 
 const initialState = {
@@ -81,6 +84,7 @@ const initialState = {
     lastComputedAt: null,
   },
   lastCycleResetMonth: null,
+  groceryStreakWeeks: 0,
 };
 
 async function loadKey(key, fallback) {
@@ -139,6 +143,7 @@ const useStore = create((set, get) => ({
       varianceConfig,
       lastCycleResetMonth,
       groceryEntries,
+      groceryStreakWeeks,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -166,6 +171,7 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.VARIANCE_CONFIG, initialState.varianceConfig),
       loadKey(KEYS.LAST_CYCLE_RESET_MONTH, initialState.lastCycleResetMonth),
       loadKey(KEYS.groceryEntries, initialState.groceryEntries),
+      loadKey(KEYS.groceryStreakWeeks, initialState.groceryStreakWeeks),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -208,6 +214,7 @@ const useStore = create((set, get) => ({
       varianceConfig,
       lastCycleResetMonth,
       groceryEntries,
+      groceryStreakWeeks,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -229,6 +236,24 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
     get().checkAndAwardBadge('comma_club');
+    // Fire floor warning if new balance is within 20% above floor
+    const { accountFloors } = get();
+    const floor = accountFloors[key] ?? accountFloors.others ?? 0;
+    if (floor > 0) {
+      const newBal = accounts[key] || 0;
+      const threshold = floor + Math.floor(floor * 0.2);
+      if (newBal < threshold) {
+        const accountLabel = key.replace(/([A-Z])/g, ' $1').toUpperCase();
+        const pct = Math.max(0, Math.round(((newBal - floor) / floor) * 100));
+        const cfg = notificationsConfig.spendingFloorWarning;
+        scheduleLocalNotification(
+          `floor_${key}`,
+          cfg.title,
+          cfg.body.replace('{accountName}', accountLabel).replace('{percentRemaining}', pct),
+          5,
+        );
+      }
+    }
     get().recomputeVariance();
   },
 
@@ -258,6 +283,20 @@ const useStore = create((set, get) => ({
     get().awardXP(10);
     get().checkAndAwardBadge('first_log');
     get().rotateFlavorTextForEvent('transaction');
+    // Trigger significant-transaction auto-export
+    if (Math.abs(amt) >= 10000) {
+      AsyncStorage.getItem('nova_v2_export_config').then(raw => {
+        if (raw) {
+          const cfg = JSON.parse(raw);
+          if (cfg.schedule === 'significant') {
+            // Lazy import to avoid circular deps
+            import('../hooks/useExport').then(m => {
+              m.useExport().checkAndRunAutoExport();
+            });
+          }
+        }
+      }).catch(() => {});
+    }
     get().recomputeVariance();
   },
 
@@ -335,6 +374,14 @@ const useStore = create((set, get) => ({
       get().checkAndAwardBadge('rollover_king');
     }
     get().checkAndAwardBadge('comma_club');
+    // Savings milestone check after paycheck distribution
+    const prevSavingsThousands = Math.floor((accounts.entSavings || 0) / 100000);
+    const newSavingsThousands = Math.floor((accts.entSavings || 0) / 100000);
+    if (newSavingsThousands > prevSavingsThousands && (accts.entSavings || 0) >= 100000) {
+      const cfg = notificationsConfig.savingsMilestone;
+      const amt = `$${newSavingsThousands.toLocaleString()},000`;
+      scheduleLocalNotification('savings_milestone', cfg.title, cfg.body.replace('{amount}', amt), 5);
+    }
     get().rotateFlavorTextForEvent('rollover');
     get().recomputeVariance();
   },
@@ -794,10 +841,44 @@ const useStore = create((set, get) => ({
   checkCycleReset: async () => {
     const now = new Date();
     const currentCycleId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const { lastCycleResetMonth } = get();
+    const { lastCycleResetMonth, groceryBudget, groceryStreakWeeks, householdBills, personalBills } = get();
     if (currentCycleId !== lastCycleResetMonth) {
-      set({ lastCycleResetMonth: currentCycleId });
-      await AsyncStorage.setItem(KEYS.LAST_CYCLE_RESET_MONTH, JSON.stringify(currentCycleId));
+      // Check partner deposit missed for closing cycle
+      const { incomeEvents } = get();
+      if (lastCycleResetMonth && incomeEvents?.partnerDepositLastReceivedMonth !== lastCycleResetMonth) {
+        const cfg = notificationsConfig.partnerDepositMissed;
+        scheduleLocalNotification('partner_deposit_missed', cfg.title, cfg.body, 5);
+      }
+
+      // Grocery streak: check if closing week was under limit
+      let newStreakWeeks = groceryStreakWeeks;
+      if (groceryBudget?.weeklyLimit > 0) {
+        if ((groceryBudget.currentWeekSpend || 0) <= groceryBudget.weeklyLimit) {
+          newStreakWeeks += 1;
+        } else {
+          newStreakWeeks = 0;
+        }
+      }
+      if (newStreakWeeks >= 4) {
+        get().checkAndAwardBadge('grocery_discipline');
+      }
+
+      // cycle_complete badge: all active bills paid this cycle
+      const closingCycleId = lastCycleResetMonth;
+      if (closingCycleId) {
+        const allBills = [...(householdBills || []), ...(personalBills || [])];
+        const activeBills = allBills.filter(b => b.isActive !== false);
+        const allPaid = activeBills.length > 0 && activeBills.every(b => b.lastPaidMonth === closingCycleId);
+        if (allPaid) {
+          get().checkAndAwardBadge('cycle_complete');
+        }
+      }
+
+      set({ lastCycleResetMonth: currentCycleId, groceryStreakWeeks: newStreakWeeks });
+      await Promise.all([
+        AsyncStorage.setItem(KEYS.LAST_CYCLE_RESET_MONTH, JSON.stringify(currentCycleId)),
+        AsyncStorage.setItem(KEYS.groceryStreakWeeks, JSON.stringify(newStreakWeeks)),
+      ]);
       get().recomputeVariance();
       get().rotateFlavorTextForEvent('cycle_reset');
     }
@@ -846,14 +927,27 @@ const useStore = create((set, get) => ({
     const updated = [...get().massageIncome, newRecord];
     const { accounts } = get();
     const dest = record.destinationAccount || 'cash';
+    const prevSavings = accounts.entSavings || 0;
     const updatedAccounts = { ...accounts, [dest]: (accounts[dest] || 0) + (record.amountCents || 0) };
     set({ massageIncome: updated, accounts: updatedAccounts });
     await Promise.all([
       AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
-    get().awardXP(5);
+    get().awardXP(10);
     get().checkAndAwardBadge('massage_income');
+    // Savings milestone check (if destination was entSavings)
+    if (dest === 'entSavings') {
+      const newSavings = updatedAccounts.entSavings || 0;
+      const prevThousands = Math.floor(prevSavings / 100000);
+      const newThousands = Math.floor(newSavings / 100000);
+      if (newThousands > prevThousands && newSavings >= 100000) {
+        const cfg = notificationsConfig.savingsMilestone;
+        const amt = `$${(newThousands).toLocaleString()},000`;
+        scheduleLocalNotification('savings_milestone', cfg.title, cfg.body.replace('{amount}', amt), 5);
+        get().checkAndAwardBadge('comma_club');
+      }
+    }
     get().recomputeVariance();
   },
 

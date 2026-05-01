@@ -24,5 +24,5 @@ export function parseBillInput(decimalString) {
   if (!decimalString) return 0;
   const parsed = parseFloat(decimalString);
   if (isNaN(parsed)) return 0;
-  return Math.floor(parsed * 100);
+  return Math.round(parsed * 100);
 }
