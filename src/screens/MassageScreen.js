@@ -11,6 +11,8 @@ import LogMassageExpenseModal from '../components/modals/LogMassageExpenseModal'
 export default function MassageScreen({ navigation }) {
   const massageIncome = useStore((s) => s.massageIncome);
   const massageExpenses = useStore((s) => s.massageExpenses);
+  const logMassageIncome = useStore((s) => s.logMassageIncome);
+  const logMassageExpense = useStore((s) => s.logMassageExpense);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
@@ -117,12 +119,12 @@ export default function MassageScreen({ navigation }) {
       <LogMassageIncomeModal
         visible={showIncomeModal}
         onClose={() => setShowIncomeModal(false)}
-        onConfirm={() => {}}
+        onConfirm={(record) => logMassageIncome(record)}
       />
       <LogMassageExpenseModal
         visible={showExpenseModal}
         onClose={() => setShowExpenseModal(false)}
-        onConfirm={() => {}}
+        onConfirm={(record) => logMassageExpense(record)}
       />
     </View>
   );

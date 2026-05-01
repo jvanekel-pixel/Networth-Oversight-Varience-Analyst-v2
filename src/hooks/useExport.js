@@ -42,7 +42,7 @@ export function useExport() {
       }
       const json = buildFullJsonExport(data);
       const path = `${FileSystem.cacheDirectory}nova_backup_${todayStr()}.json`;
-      await FileSystem.writeAsStringAsync(path, json, { encoding: FileSystem.EncodingType.UTF8 });
+      await FileSystem.writeAsStringAsync(path, json, { encoding: 'utf8' });
       await shareFile(path, 'application/json');
 
       // Update last export timestamp
@@ -61,7 +61,7 @@ export function useExport() {
       const result = await DocumentPicker.getDocumentAsync({ type: 'application/json' });
       if (result.canceled || !result.assets?.[0]?.uri) return;
       const uri = result.assets[0].uri;
-      const raw = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const raw = await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
       const parsed = JSON.parse(raw);
       const { valid, reason } = validateImportJson(parsed);
       if (!valid) {
@@ -95,7 +95,7 @@ export function useExport() {
       const { transactions } = useStore.getState();
       const csv = buildAccountCsv(accountKey, transactions || []);
       const path = `${FileSystem.cacheDirectory}nova_${accountKey}_${todayStr()}.csv`;
-      await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      await FileSystem.writeAsStringAsync(path, csv, { encoding: 'utf8' });
       await shareFile(path, 'text/csv');
     } catch (e) {
       console.warn('exportAccountCsv error:', e);
@@ -114,7 +114,7 @@ export function useExport() {
       ];
       for (const { name, csv } of files) {
         const path = `${FileSystem.cacheDirectory}nova_${name}_${todayStr()}.csv`;
-        await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+        await FileSystem.writeAsStringAsync(path, csv, { encoding: 'utf8' });
         await shareFile(path, 'text/csv');
       }
     } catch (e) {

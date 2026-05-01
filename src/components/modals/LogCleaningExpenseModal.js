@@ -8,9 +8,10 @@ import { parseBillInput } from '../../utils/currency';
 const CATEGORIES = ['formation_legal', 'equipment', 'supplies', 'marketing', 'software_tools', 'meals_entertainment', 'other'];
 
 export default function LogCleaningExpenseModal({ visible, onClose, onConfirm }) {
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
-  const [year, setYear] = useState('');
+  const today = new Date();
+  const [month, setMonth] = useState(String(today.getMonth() + 1));
+  const [day, setDay] = useState(String(today.getDate()));
+  const [year, setYear] = useState(String(today.getFullYear()));
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('supplies');
   const [description, setDescription] = useState('');

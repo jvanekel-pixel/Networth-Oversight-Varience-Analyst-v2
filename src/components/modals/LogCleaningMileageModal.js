@@ -5,9 +5,10 @@ import {
 import theme from '../../config/theme.config';
 
 export default function LogCleaningMileageModal({ visible, onClose, onConfirm, irsRateCents = 70 }) {
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
-  const [year, setYear] = useState('');
+  const today = new Date();
+  const [month, setMonth] = useState(String(today.getMonth() + 1));
+  const [day, setDay] = useState(String(today.getDate()));
+  const [year, setYear] = useState(String(today.getFullYear()));
   const [miles, setMiles] = useState('');
   const [purpose, setPurpose] = useState('');
 

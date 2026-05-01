@@ -6,9 +6,10 @@ import theme from '../../config/theme.config';
 import { parseBillInput } from '../../utils/currency';
 
 export default function LogMassageIncomeModal({ visible, onClose, onConfirm }) {
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
-  const [year, setYear] = useState('');
+  const today = new Date();
+  const [month, setMonth] = useState(String(today.getMonth() + 1));
+  const [day, setDay] = useState(String(today.getDate()));
+  const [year, setYear] = useState(String(today.getFullYear()));
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [destinationAccount, setDestinationAccount] = useState('cash');

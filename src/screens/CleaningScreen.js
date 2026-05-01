@@ -11,6 +11,8 @@ import LogCleaningMileageModal from '../components/modals/LogCleaningMileageModa
 export default function CleaningScreen({ navigation }) {
   const cleaningExpenses = useStore((s) => s.cleaningExpenses);
   const cleaningMileage = useStore((s) => s.cleaningMileage);
+  const logCleaningExpense = useStore((s) => s.logCleaningExpense);
+  const logCleaningMileage = useStore((s) => s.logCleaningMileage);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showMileageModal, setShowMileageModal] = useState(false);
   const [categoryExpanded, setCategoryExpanded] = useState(false);
@@ -129,12 +131,12 @@ export default function CleaningScreen({ navigation }) {
       <LogCleaningExpenseModal
         visible={showExpenseModal}
         onClose={() => setShowExpenseModal(false)}
-        onConfirm={() => {}}
+        onConfirm={(record) => logCleaningExpense(record)}
       />
       <LogCleaningMileageModal
         visible={showMileageModal}
         onClose={() => setShowMileageModal(false)}
-        onConfirm={() => {}}
+        onConfirm={(record) => logCleaningMileage(record)}
       />
     </View>
   );

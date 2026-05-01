@@ -36,6 +36,30 @@ enableScreens(false);
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+function getNextSunday7pm() {
+  const now = new Date();
+  const daysUntilSunday = (7 - now.getDay()) % 7 || 7;
+  const next = new Date(now);
+  next.setDate(now.getDate() + daysUntilSunday);
+  next.setHours(19, 0, 0, 0);
+  return next;
+}
+
+function getNextDailyTime(hour, minute) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next;
+}
+
+function getDayBeforeDate(dateMs) {
+  const d = new Date(dateMs);
+  d.setDate(d.getDate() - 1);
+  d.setHours(18, 0, 0, 0);
+  return d;
+}
+
 const NOTIF_PERM_KEY = 'nova_v2_notif_perm_asked';
 const LAST_ACTIVITY_KEY = 'nova_v2_lastActivityAt';
 const NUDGE_SENT_KEY = 'nova_v2_nudge_sent_at';
@@ -56,18 +80,18 @@ async function scheduleRecurringNotifications(incomeEvents) {
 
   const toggles = await getNotifToggles();
 
-  // Weekly variance summary — every Sunday at 19:00
+  // Weekly variance summary — next Sunday at 19:00 (rescheduled on every foreground resume)
   if (toggles.weeklyVarianceSummary !== false) {
     const cfg = notificationsConfig.weeklyVarianceSummary;
     await scheduleCalendarNotification(
       'weekly_variance',
       cfg.title.replace('{zone}', 'HOUSEHOLD'),
       cfg.body.replace('{zone}', 'household').replace('{state}', 'updated'),
-      { type: 'calendar', weekday: 1, hour: 19, minute: 0, repeats: true },
+      { type: 'date', date: getNextSunday7pm() },
     );
   }
 
-  // NOVA daily disposition — every day at configurable time
+  // NOVA daily disposition — next occurrence of configurable time
   if (toggles.novaDailyDisposition !== false) {
     const dailyTimeRaw = await AsyncStorage.getItem('nova_v2_notif_daily_time');
     const dailyTime = dailyTimeRaw ? JSON.parse(dailyTimeRaw) : '09:00';
@@ -78,18 +102,16 @@ async function scheduleRecurringNotifications(incomeEvents) {
       'nova_daily',
       notificationsConfig.novaDailyDisposition.title,
       dailyBody,
-      { type: 'calendar', hour: h || 9, minute: m || 0, repeats: true },
+      { type: 'date', date: getNextDailyTime(h || 9, m || 0) },
     );
   }
 
-  // Pay cycle reminder — day before nextPaycheckDate at 18:00
+  // Pay cycle reminder — 18:00 the day before nextPaycheckDate
   if (toggles.payCycleReminder !== false && incomeEvents?.nextPaycheckDate) {
-    const pcDate = new Date(incomeEvents.nextPaycheckDate);
-    const dayBefore = new Date(pcDate);
-    dayBefore.setDate(pcDate.getDate() - 1);
-    dayBefore.setHours(18, 0, 0, 0);
+    const dayBefore = getDayBeforeDate(incomeEvents.nextPaycheckDate);
     if (dayBefore.getTime() > Date.now()) {
       const cfg = notificationsConfig.payCycleReminder;
+      const pcDate = new Date(incomeEvents.nextPaycheckDate);
       const dateStr = pcDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       await scheduleCalendarNotification(
         'paycheck_reminder',
