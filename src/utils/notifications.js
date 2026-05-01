@@ -5,12 +5,35 @@ export async function scheduleLocalNotification(id, title, body, triggerSeconds)
     const identifier = await Notifications.scheduleNotificationAsync({
       identifier: id,
       content: { title, body },
-      trigger: { seconds: Math.max(1, triggerSeconds) },
+      trigger: { type: 'timeInterval', seconds: Math.max(1, triggerSeconds), repeats: false },
     });
     return identifier;
   } catch (e) {
     console.warn('scheduleLocalNotification error:', e);
     return null;
+  }
+}
+
+export async function scheduleCalendarNotification(id, title, body, trigger) {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+    const identifier = await Notifications.scheduleNotificationAsync({
+      identifier: id,
+      content: { title, body },
+      trigger,
+    });
+    return identifier;
+  } catch (e) {
+    console.warn('scheduleCalendarNotification error:', e);
+    return null;
+  }
+}
+
+export async function cancelAllNotifications() {
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+  } catch (e) {
+    console.warn('cancelAllNotifications error:', e);
   }
 }
 

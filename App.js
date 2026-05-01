@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet, AppState } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -13,8 +14,10 @@ import useStore from './src/store/useStore';
 import {
   requestNotificationPermissions,
   scheduleLocalNotification,
-  cancelNotification,
+  scheduleCalendarNotification,
+  cancelAllNotifications,
 } from './src/utils/notifications';
+import { useExport } from './src/hooks/useExport';
 
 import NovaHeader from './src/components/NovaHeader';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -34,78 +37,158 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const NOTIF_PERM_KEY = 'nova_v2_notif_perm_asked';
-const LAST_ACTIVITY_KEY = 'nova_v2_last_activity';
+const LAST_ACTIVITY_KEY = 'nova_v2_lastActivityAt';
+const NUDGE_SENT_KEY = 'nova_v2_nudge_sent_at';
+const NOTIFIED_BILLS_KEY = 'nova_v2_notified_bills';
 
-async function runAppOpenNotifications(incomeEvents) {
-  // Request permissions once
-  const permAsked = await AsyncStorage.getItem(NOTIF_PERM_KEY);
-  if (!permAsked) {
-    await requestNotificationPermissions();
-    await AsyncStorage.setItem(NOTIF_PERM_KEY, 'true');
+async function getNotifToggles() {
+  try {
+    const raw = await AsyncStorage.getItem('nova_v2_notif_toggles');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
   }
+}
 
-  // Balance nudge if >48h inactive
-  const lastRaw = await AsyncStorage.getItem(LAST_ACTIVITY_KEY);
-  const lastActivity = lastRaw ? JSON.parse(lastRaw) : null;
-  if (!lastActivity || Date.now() - lastActivity > 48 * 60 * 60 * 1000) {
-    const cfg = notificationsConfig.balanceConfirmationNudge;
-    await scheduleLocalNotification('balance_nudge', cfg.title, cfg.body, 10);
-  }
+async function scheduleRecurringNotifications(incomeEvents) {
+  // Cancel all existing scheduled notifications before rescheduling
+  await cancelAllNotifications();
 
-  // Paycheck reminder if tomorrow
-  if (incomeEvents?.nextPaycheckDate) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const pcDate = new Date(incomeEvents.nextPaycheckDate);
-    const isTomorrow =
-      pcDate.getDate() === tomorrow.getDate() &&
-      pcDate.getMonth() === tomorrow.getMonth() &&
-      pcDate.getFullYear() === tomorrow.getFullYear();
-    if (isTomorrow) {
-      const cfg = notificationsConfig.payCycleReminder;
-      const dateStr = pcDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      await scheduleLocalNotification(
-        'paycheck_reminder',
-        cfg.title,
-        cfg.body.replace('{paycheckDate}', dateStr),
-        30,
-      );
-    }
-  }
+  const toggles = await getNotifToggles();
 
-  // Weekly variance summary — next Sunday at 7pm
-  await cancelNotification('weekly_variance');
-  const now = new Date();
-  const daysUntilSunday = (7 - now.getDay()) % 7 || 7;
-  const nextSunday = new Date(now);
-  nextSunday.setDate(now.getDate() + daysUntilSunday);
-  nextSunday.setHours(19, 0, 0, 0);
-  const secondsUntilSunday = Math.floor((nextSunday.getTime() - now.getTime()) / 1000);
-  if (secondsUntilSunday > 0) {
+  // Weekly variance summary — every Sunday at 19:00
+  if (toggles.weeklyVarianceSummary !== false) {
     const cfg = notificationsConfig.weeklyVarianceSummary;
-    await scheduleLocalNotification(
+    await scheduleCalendarNotification(
       'weekly_variance',
       cfg.title.replace('{zone}', 'HOUSEHOLD'),
       cfg.body.replace('{zone}', 'household').replace('{state}', 'updated'),
-      secondsUntilSunday,
+      { type: 'calendar', weekday: 1, hour: 19, minute: 0, repeats: true },
     );
   }
 
-  // NOVA daily disposition — next occurrence of defaultTime
-  await cancelNotification('nova_daily');
-  const [h, m] = notificationsConfig.novaDailyDisposition.defaultTime.split(':').map(Number);
-  const nextDaily = new Date();
-  nextDaily.setHours(h, m, 0, 0);
-  if (nextDaily.getTime() <= Date.now()) nextDaily.setDate(nextDaily.getDate() + 1);
-  const secondsUntilDaily = Math.floor((nextDaily.getTime() - Date.now()) / 1000);
-  const bodies = notificationsConfig.novaDailyDisposition.bodies;
-  const dailyBody = bodies[Math.floor(Math.random() * bodies.length)];
-  await scheduleLocalNotification(
-    'nova_daily',
-    notificationsConfig.novaDailyDisposition.title,
-    dailyBody,
-    secondsUntilDaily,
-  );
+  // NOVA daily disposition — every day at configurable time
+  if (toggles.novaDailyDisposition !== false) {
+    const dailyTimeRaw = await AsyncStorage.getItem('nova_v2_notif_daily_time');
+    const dailyTime = dailyTimeRaw ? JSON.parse(dailyTimeRaw) : '09:00';
+    const [h, m] = dailyTime.split(':').map(Number);
+    const bodies = notificationsConfig.novaDailyDisposition.bodies;
+    const dailyBody = bodies[Math.floor(Math.random() * bodies.length)];
+    await scheduleCalendarNotification(
+      'nova_daily',
+      notificationsConfig.novaDailyDisposition.title,
+      dailyBody,
+      { type: 'calendar', hour: h || 9, minute: m || 0, repeats: true },
+    );
+  }
+
+  // Pay cycle reminder — day before nextPaycheckDate at 18:00
+  if (toggles.payCycleReminder !== false && incomeEvents?.nextPaycheckDate) {
+    const pcDate = new Date(incomeEvents.nextPaycheckDate);
+    const dayBefore = new Date(pcDate);
+    dayBefore.setDate(pcDate.getDate() - 1);
+    dayBefore.setHours(18, 0, 0, 0);
+    if (dayBefore.getTime() > Date.now()) {
+      const cfg = notificationsConfig.payCycleReminder;
+      const dateStr = pcDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      await scheduleCalendarNotification(
+        'paycheck_reminder',
+        cfg.title,
+        cfg.body.replace('{paycheckDate}', dateStr),
+        { type: 'date', date: dayBefore },
+      );
+    }
+  }
+}
+
+async function runOneTimeChecks(incomeEvents, checkAndRunAutoExport) {
+  const toggles = await getNotifToggles();
+
+  // CHECK A — Balance nudge (>48h inactive), dedup via NUDGE_SENT_KEY
+  if (toggles.balanceConfirmationNudge !== false) {
+    const lastRaw = await AsyncStorage.getItem(LAST_ACTIVITY_KEY);
+    const lastActivity = lastRaw ? JSON.parse(lastRaw) : null;
+    const isInactive = !lastActivity || Date.now() - lastActivity > 48 * 60 * 60 * 1000;
+    if (isInactive) {
+      const nudgeSentRaw = await AsyncStorage.getItem(NUDGE_SENT_KEY);
+      const nudgeSentAt = nudgeSentRaw ? JSON.parse(nudgeSentRaw) : 0;
+      const needsNewNudge = Date.now() - nudgeSentAt > 48 * 60 * 60 * 1000;
+      if (needsNewNudge) {
+        const cfg = notificationsConfig.balanceConfirmationNudge;
+        await scheduleLocalNotification('balance_nudge', cfg.title, cfg.body, 10);
+        await AsyncStorage.setItem(NUDGE_SENT_KEY, JSON.stringify(Date.now()));
+      }
+    }
+  }
+
+  // CHECK B — Partner deposit not received this month
+  if (toggles.partnerDepositMissed !== false && incomeEvents?.partnerDepositExpectedDay) {
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const dayOfMonth = today.getDate();
+    const depositDue = dayOfMonth >= incomeEvents.partnerDepositExpectedDay;
+    const alreadyReceived = incomeEvents?.partnerDepositLastReceivedMonth === currentMonth;
+    if (depositDue && !alreadyReceived) {
+      const cfg = notificationsConfig.partnerDepositMissed;
+      await scheduleLocalNotification('partner_deposit_missed', cfg.title, cfg.body, 5);
+    }
+  }
+
+  // CHECK C — Auto-export
+  if (checkAndRunAutoExport) {
+    await checkAndRunAutoExport().catch(() => {});
+  }
+
+  // CHECK D — Bill due alerts (Task 5)
+  if (toggles.billDueAlert !== false) {
+    const storeState = useStore.getState();
+    const { householdBills, personalBills, varianceCache } = storeState;
+    const allBills = [...(householdBills || []), ...(personalBills || [])];
+    const today = new Date();
+    const currentDayOfMonth = today.getDate();
+    const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+    const notifiedRaw = await AsyncStorage.getItem(NOTIFIED_BILLS_KEY);
+    const notifiedBills = notifiedRaw ? JSON.parse(notifiedRaw) : [];
+
+    for (const bill of allBills.filter(b => b.isActive !== false && !b.deleted)) {
+      const dueDay = bill.expectedDay || bill.dueDay;
+      if (!dueDay) continue;
+      const daysUntil = dueDay - currentDayOfMonth;
+      if (daysUntil < 0 || daysUntil > 3) continue;
+      const billKey = `${bill.id}-${yearMonth}`;
+      if (notifiedBills.includes(billKey)) continue;
+      const projectedBalance = varianceCache?.household?.balance || 0;
+      if (projectedBalance < (bill.amountCents || 0)) {
+        const cfg = notificationsConfig.billDueAlert;
+        await scheduleLocalNotification(
+          `bill_due_${bill.id}`,
+          cfg.title,
+          cfg.body.replace('{billName}', bill.name).replace('{daysUntil}', String(daysUntil)),
+          10,
+        );
+        notifiedBills.push(billKey);
+      }
+    }
+    await AsyncStorage.setItem(NOTIFIED_BILLS_KEY, JSON.stringify(notifiedBills));
+  }
+}
+
+async function runAppOpenChecks(incomeEvents, checkAndRunAutoExport) {
+  // Request permissions once
+  const permAsked = await AsyncStorage.getItem(NOTIF_PERM_KEY);
+  if (!permAsked) {
+    const toggles = await getNotifToggles();
+    const anyEnabled = Object.values(toggles).some(v => v !== false);
+    // Default: request if no prefs set yet (user hasn't disabled everything)
+    if (anyEnabled || Object.keys(toggles).length === 0) {
+      await requestNotificationPermissions();
+    }
+    await AsyncStorage.setItem(NOTIF_PERM_KEY, 'true');
+  }
+
+  await scheduleRecurringNotifications(incomeEvents);
+  await runOneTimeChecks(incomeEvents, checkAndRunAutoExport);
 }
 
 function MainTabs() {
@@ -135,13 +218,14 @@ export default function App() {
   const checkCycleReset = useStore((s) => s.checkCycleReset);
   const recomputeVariance = useStore((s) => s.recomputeVariance);
   const incomeEvents = useStore((s) => s.incomeEvents);
+  const { checkAndRunAutoExport } = useExport();
 
   useEffect(() => {
     initStore().then(() => {
       rotateFlavorText(personality.starterPool);
       checkCycleReset();
       recomputeVariance();
-      runAppOpenNotifications(incomeEvents);
+      runAppOpenChecks(incomeEvents, checkAndRunAutoExport);
     });
   }, []);
 
@@ -149,11 +233,11 @@ export default function App() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         checkCycleReset();
-        runAppOpenNotifications(incomeEvents);
+        runAppOpenChecks(incomeEvents, checkAndRunAutoExport);
       }
     });
     return () => sub.remove();
-  }, [incomeEvents]);
+  }, [incomeEvents, checkAndRunAutoExport]);
 
   if (!onboardingComplete) {
     return <OnboardingScreen />;
@@ -161,6 +245,7 @@ export default function App() {
 
   return (
     <View style={styles.root}>
+      <StatusBar hidden={true} />
       <NovaHeader />
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>

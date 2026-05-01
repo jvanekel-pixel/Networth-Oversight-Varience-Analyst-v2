@@ -280,6 +280,26 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
+    // Floor warning for the affected account
+    if (accountKey) {
+      const { accountFloors } = get();
+      const floor = accountFloors[accountKey] ?? accountFloors.others ?? 0;
+      if (floor > 0) {
+        const newBal = updatedAccounts[accountKey] || 0;
+        const threshold = floor + Math.floor(floor * 0.2);
+        if (newBal < threshold) {
+          const accountLabel = accountKey.replace(/([A-Z])/g, ' $1').toUpperCase();
+          const pct = Math.max(0, Math.round(((newBal - floor) / floor) * 100));
+          const cfg = notificationsConfig.spendingFloorWarning;
+          scheduleLocalNotification(
+            `floor_${accountKey}`,
+            cfg.title,
+            cfg.body.replace('{accountName}', accountLabel).replace('{percentRemaining}', pct),
+            5,
+          );
+        }
+      }
+    }
     get().awardXP(10);
     get().checkAndAwardBadge('first_log');
     get().rotateFlavorTextForEvent('transaction');
@@ -908,6 +928,11 @@ const useStore = create((set, get) => ({
       set({ badges: newBadges });
       await AsyncStorage.setItem(KEYS.badges, JSON.stringify(newBadges));
     }
+  },
+
+  getLastActivity: async () => {
+    const raw = await AsyncStorage.getItem(KEYS.lastActivityAt);
+    return raw ? JSON.parse(raw) : null;
   },
 
   persistAll: async () => {
