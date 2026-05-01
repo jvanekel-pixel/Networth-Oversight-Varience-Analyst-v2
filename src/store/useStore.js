@@ -29,12 +29,17 @@ const KEYS = {
   schemaVersion: 'nova_v2_schemaVersion',
   VARIANCE_CONFIG: 'nova_v2_variance_config',
   LAST_CYCLE_RESET_MONTH: 'nova_v2_last_cycle_reset_month',
+  groceryEntries: 'nova_v2_grocery_entries',
+  MASSAGE_INCOME: 'nova_v2_massageIncome',
+  MASSAGE_EXPENSES: 'nova_v2_massageExpenses',
+  CLEANING_EXPENSES: 'nova_v2_cleaningExpenses',
+  CLEANING_MILEAGE: 'nova_v2_cleaningMileage',
 };
 
 const initialState = {
   onboardingComplete: false,
   accounts: { jointChecking: 0, entChecking: 0, entSavings: 0, venmo: 0, cash: 0 },
-  accountFloors: { entChecking: 5000, others: 0 },
+  accountFloors: { jointChecking: 30000, entChecking: 5000, others: 0 },
   householdBills: [],
   personalBills: [],
   billOverrides: {},
@@ -48,6 +53,7 @@ const initialState = {
   },
   distribution: { entSavings: 5000, venmo: 15000, entChecking: 16000 },
   groceryBudget: { weeklyLimit: 0, currentWeekSpend: 0, weekStartDate: null },
+  groceryEntries: [],
   transactions: [],
   massageIncome: [],
   massageExpenses: [],
@@ -64,7 +70,7 @@ const initialState = {
   schemaVersion: '1.0',
   warnings: [],
   varianceConfig: {
-    household: { redThresholdCents: -30000, yellowFloorBufferCents: 0 },
+    household: { redThresholdCents: 0, yellowFloorBufferCents: 0 },
     personal: { redThresholdCents: -30000, yellowFloorBufferCents: 0 },
     business: { redThresholdCents: -30000, yellowFloorBufferCents: 0 },
   },
@@ -132,6 +138,7 @@ const useStore = create((set, get) => ({
       schemaVersion,
       varianceConfig,
       lastCycleResetMonth,
+      groceryEntries,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -158,6 +165,7 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.schemaVersion, initialState.schemaVersion),
       loadKey(KEYS.VARIANCE_CONFIG, initialState.varianceConfig),
       loadKey(KEYS.LAST_CYCLE_RESET_MONTH, initialState.lastCycleResetMonth),
+      loadKey(KEYS.groceryEntries, initialState.groceryEntries),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -199,6 +207,7 @@ const useStore = create((set, get) => ({
       schemaVersion,
       varianceConfig,
       lastCycleResetMonth,
+      groceryEntries,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -219,6 +228,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(accounts)),
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
+    get().checkAndAwardBadge('comma_club');
     get().recomputeVariance();
   },
 
@@ -246,7 +256,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
     get().awardXP(10);
-    get().checkAndAwardBadge('firstLog');
+    get().checkAndAwardBadge('first_log');
     get().rotateFlavorTextForEvent('transaction');
     get().recomputeVariance();
   },
@@ -294,13 +304,22 @@ const useStore = create((set, get) => ({
     newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: -venmoAmt, category: 'Transfer', description: 'Transfer → Venmo', timestamp: now });
     newTxs.push({ id: mkId(), accountKey: 'venmo', amountCents: venmoAmt, category: 'Transfer', description: 'Transfer from ENT Checking', timestamp: now });
 
-    // 5. Advance nextPaycheckDate by 14 days
+    // 5. Advance nextPaycheckDate by the correct frequency interval
     const currentNext = incomeEvents.nextPaycheckDate;
-    const nextPaycheckDate = currentNext
-      ? currentNext + 14 * 24 * 60 * 60 * 1000
-      : now + 14 * 24 * 60 * 60 * 1000;
+    const freq = incomeEvents.payFrequency || incomeEvents.paycheckFrequency || 'biweekly';
+    let nextPaycheckDate;
+    if (!currentNext || freq === 'unscheduled') {
+      nextPaycheckDate = currentNext;
+    } else if (freq === 'weekly') {
+      nextPaycheckDate = currentNext + 7 * 24 * 60 * 60 * 1000;
+    } else if (freq === 'monthly') {
+      const d = new Date(currentNext);
+      nextPaycheckDate = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate()).getTime();
+    } else {
+      nextPaycheckDate = currentNext + 14 * 24 * 60 * 60 * 1000;
+    }
 
-    const updatedIncomeEvents = { ...incomeEvents, paycheckAmount: gross, nextPaycheckDate };
+    const updatedIncomeEvents = { ...incomeEvents, paycheckAmount: gross, paycheckAmountCents: gross, nextPaycheckDate };
     const updatedTransactions = [...transactions, ...newTxs];
 
     set({ accounts: accts, transactions: updatedTransactions, incomeEvents: updatedIncomeEvents, lastActivityAt: now });
@@ -311,7 +330,11 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
 
-    if (awardRolloverXP) get().awardXP(50);
+    if (awardRolloverXP) {
+      get().awardXP(50);
+      get().checkAndAwardBadge('rollover_king');
+    }
+    get().checkAndAwardBadge('comma_club');
     get().rotateFlavorTextForEvent('rollover');
     get().recomputeVariance();
   },
@@ -332,7 +355,7 @@ const useStore = create((set, get) => ({
       timestamp: now,
     };
     const updatedTransactions = [...transactions, newTx];
-    const updatedIncomeEvents = { ...incomeEvents, partnerDepositLastReceivedMonth: currentMonth };
+    const updatedIncomeEvents = { ...incomeEvents, partnerDepositLastReceivedMonth: currentMonth, partnerDepositAmountCents: amt, partnerDepositAmount: amt };
 
     set({ accounts: updatedAccounts, transactions: updatedTransactions, incomeEvents: updatedIncomeEvents, lastActivityAt: now });
     await Promise.all([
@@ -480,17 +503,50 @@ const useStore = create((set, get) => ({
     if (!tx) return;
     const oldAmt = tx.amountCents;
     const newAmt = updates.amountCents !== undefined ? Math.floor(updates.amountCents) : oldAmt;
-    const amtDelta = newAmt - oldAmt;
+    const oldAccountKey = tx.accountKey;
+    const newAccountKey = updates.accountKey || oldAccountKey;
     const updatedTx = { ...tx, ...updates, amountCents: newAmt };
     const updatedTransactions = transactions.map(t => t.id === txId ? updatedTx : t);
-    const updatedAccounts = (tx.accountKey && amtDelta !== 0)
-      ? { ...accounts, [tx.accountKey]: (accounts[tx.accountKey] || 0) + amtDelta }
-      : accounts;
+    let updatedAccounts = { ...accounts };
+    if (oldAccountKey === newAccountKey) {
+      const delta = newAmt - oldAmt;
+      if (delta !== 0 && oldAccountKey) {
+        updatedAccounts[oldAccountKey] = (updatedAccounts[oldAccountKey] || 0) + delta;
+      }
+    } else {
+      if (oldAccountKey) updatedAccounts[oldAccountKey] = (updatedAccounts[oldAccountKey] || 0) - oldAmt;
+      if (newAccountKey) updatedAccounts[newAccountKey] = (updatedAccounts[newAccountKey] || 0) + newAmt;
+    }
     set({ transactions: updatedTransactions, accounts: updatedAccounts });
     await Promise.all([
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
-      ...(amtDelta !== 0 ? [AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts))] : []),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+
+    if (tx.category === 'Grocery') {
+      const { groceryEntries, groceryBudget } = get();
+      const currentWeekStart = getCurrentWeekStart();
+      const matched = groceryEntries.find(e =>
+        !e.deleted &&
+        Math.abs(e.timestamp - tx.timestamp) < 5000 &&
+        e.amountCents === Math.abs(oldAmt)
+      );
+      if (matched) {
+        const updatedEntries = groceryEntries.map(e =>
+          e.id === matched.id ? { ...e, amountCents: Math.abs(newAmt) } : e
+        );
+        const currentWeekSpend = updatedEntries
+          .filter(e => !e.deleted && e.weekStartDate === currentWeekStart)
+          .reduce((sum, e) => sum + e.amountCents, 0);
+        const updatedBudget = { ...groceryBudget, currentWeekSpend };
+        set({ groceryEntries: updatedEntries, groceryBudget: updatedBudget });
+        await Promise.all([
+          AsyncStorage.setItem(KEYS.groceryEntries, JSON.stringify(updatedEntries)),
+          AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget)),
+        ]);
+      }
+    }
+
     get().recomputeVariance();
   },
 
@@ -509,6 +565,31 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+
+    if (tx.category === 'Grocery') {
+      const { groceryEntries, groceryBudget } = get();
+      const currentWeekStart = getCurrentWeekStart();
+      const matched = groceryEntries.find(e =>
+        !e.deleted &&
+        Math.abs(e.timestamp - tx.timestamp) < 5000 &&
+        e.amountCents === Math.abs(tx.amountCents)
+      );
+      if (matched) {
+        const updatedEntries = groceryEntries.map(e =>
+          e.id === matched.id ? { ...e, deleted: true } : e
+        );
+        const currentWeekSpend = updatedEntries
+          .filter(e => !e.deleted && e.weekStartDate === currentWeekStart)
+          .reduce((sum, e) => sum + e.amountCents, 0);
+        const updatedBudget = { ...groceryBudget, currentWeekSpend };
+        set({ groceryEntries: updatedEntries, groceryBudget: updatedBudget });
+        await Promise.all([
+          AsyncStorage.setItem(KEYS.groceryEntries, JSON.stringify(updatedEntries)),
+          AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget)),
+        ]);
+      }
+    }
+
     get().recomputeVariance();
   },
 
@@ -527,8 +608,9 @@ const useStore = create((set, get) => ({
   },
 
   logGrocerySpend: async (amountCents) => {
-    const { groceryBudget } = get();
+    const { groceryBudget, groceryEntries } = get();
     const currentWeekStart = getCurrentWeekStart();
+    const now = Date.now();
     const amt = Math.floor(amountCents);
 
     const isNewWeek = !groceryBudget.weekStartDate || groceryBudget.weekStartDate < currentWeekStart;
@@ -539,8 +621,21 @@ const useStore = create((set, get) => ({
       weekStartDate: currentWeekStart,
     };
 
-    set({ groceryBudget: updatedBudget });
-    await AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget));
+    const newEntry = {
+      id: `grocery_${now}`,
+      amountCents: amt,
+      description: '',
+      timestamp: now,
+      weekStartDate: currentWeekStart,
+      deleted: false,
+    };
+    const updatedEntries = [...groceryEntries, newEntry];
+
+    set({ groceryBudget: updatedBudget, groceryEntries: updatedEntries });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget)),
+      AsyncStorage.setItem(KEYS.groceryEntries, JSON.stringify(updatedEntries)),
+    ]);
 
     await get().logTransaction({
       accountKey: 'jointChecking',
@@ -552,6 +647,42 @@ const useStore = create((set, get) => ({
     if (updatedBudget.weeklyLimit > 0 && updatedBudget.currentWeekSpend > updatedBudget.weeklyLimit) {
       get().rotateFlavorTextForEvent('grocery_warning');
     }
+    get().recomputeVariance();
+  },
+
+  editGroceryEntry: async (entryId, updates) => {
+    const { groceryEntries, groceryBudget } = get();
+    const currentWeekStart = getCurrentWeekStart();
+    const updatedEntries = groceryEntries.map(e =>
+      e.id === entryId ? { ...e, ...updates, amountCents: Math.floor(updates.amountCents ?? e.amountCents) } : e
+    );
+    const currentWeekSpend = updatedEntries
+      .filter(e => !e.deleted && e.weekStartDate === currentWeekStart)
+      .reduce((sum, e) => sum + e.amountCents, 0);
+    const updatedBudget = { ...groceryBudget, currentWeekSpend };
+    set({ groceryEntries: updatedEntries, groceryBudget: updatedBudget });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.groceryEntries, JSON.stringify(updatedEntries)),
+      AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget)),
+    ]);
+    get().recomputeVariance();
+  },
+
+  deleteGroceryEntry: async (entryId) => {
+    const { groceryEntries, groceryBudget } = get();
+    const currentWeekStart = getCurrentWeekStart();
+    const updatedEntries = groceryEntries.map(e =>
+      e.id === entryId ? { ...e, deleted: true } : e
+    );
+    const currentWeekSpend = updatedEntries
+      .filter(e => !e.deleted && e.weekStartDate === currentWeekStart)
+      .reduce((sum, e) => sum + e.amountCents, 0);
+    const updatedBudget = { ...groceryBudget, currentWeekSpend };
+    set({ groceryEntries: updatedEntries, groceryBudget: updatedBudget });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.groceryEntries, JSON.stringify(updatedEntries)),
+      AsyncStorage.setItem(KEYS.groceryBudget, JSON.stringify(updatedBudget)),
+    ]);
     get().recomputeVariance();
   },
 
@@ -590,8 +721,7 @@ const useStore = create((set, get) => ({
     ]);
 
     get().awardXP(25);
-    get().checkAndAwardBadge('balanceConfirmed');
-    if (newStreak >= 7) get().checkAndAwardBadge('streakWeek');
+    get().checkAndAwardBadge('balance_confirmed');
   },
 
   setFlavorText: async (text) => {
@@ -631,11 +761,23 @@ const useStore = create((set, get) => ({
         incomeEvents: state.incomeEvents,
         groceryBudget: state.groceryBudget,
         varianceConfig: state.varianceConfig[profile],
+        massageIncome: state.massageIncome,
+        massageExpenses: state.massageExpenses,
+        cleaningExpenses: state.cleaningExpenses,
         now,
       });
     }
 
-    set({ varianceCache: newCache });
+    set({ varianceCache: { ...newCache } });
+  },
+
+  resetStore: async () => {
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const novaKeys = allKeys.filter(k => k.startsWith('nova_v2_'));
+      if (novaKeys.length > 0) await AsyncStorage.multiRemove(novaKeys);
+    } catch (e) {}
+    set({ ...initialState });
   },
 
   updateVarianceConfig: async (profile, updates) => {
@@ -665,19 +807,20 @@ const useStore = create((set, get) => ({
     const xpTotal = get().xpTotal + Math.floor(amount);
     set({ xpTotal });
     await AsyncStorage.setItem(KEYS.xpTotal, JSON.stringify(xpTotal));
-    get().checkAndAwardBadge('commaClub');
   },
 
   checkAndAwardBadge: async (key) => {
     const badges = get().badges;
     if (badges[key]) return;
-    const { xpTotal, confirmStreak, transactions } = get();
+    const { confirmStreak, transactions, massageIncome, cleaningExpenses, accounts } = get();
 
     let earned = false;
-    if (key === 'firstLog' && transactions.length >= 1) earned = true;
-    if (key === 'balanceConfirmed' && confirmStreak >= 1) earned = true;
-    if (key === 'streakWeek' && confirmStreak >= 7) earned = true;
-    if (key === 'commaClub' && xpTotal >= 100000) earned = true;
+    if (key === 'first_log') earned = (transactions || []).filter(t => !t.deleted).length >= 1;
+    if (key === 'rollover_king') earned = true; // only called when rollover actually fires
+    if (key === 'balance_confirmed') earned = confirmStreak >= 7;
+    if (key === 'llc_launched') earned = (cleaningExpenses || []).filter(r => !r.deleted).length >= 1;
+    if (key === 'massage_income') earned = (massageIncome || []).filter(r => !r.deleted).length >= 1;
+    if (key === 'comma_club') earned = (accounts.entSavings || 0) >= 100000;
 
     if (earned) {
       const newBadges = { ...badges, [key]: Date.now() };
@@ -695,6 +838,132 @@ const useStore = create((set, get) => ({
           : Promise.resolve()
       )
     );
+  },
+
+  logMassageIncome: async (record) => {
+    const id = 'massage_inc_' + Date.now();
+    const newRecord = { ...record, id, createdAt: Date.now() };
+    const updated = [...get().massageIncome, newRecord];
+    const { accounts } = get();
+    const dest = record.destinationAccount || 'cash';
+    const updatedAccounts = { ...accounts, [dest]: (accounts[dest] || 0) + (record.amountCents || 0) };
+    set({ massageIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
+    get().awardXP(5);
+    get().checkAndAwardBadge('massage_income');
+    get().recomputeVariance();
+  },
+
+  editMassageIncome: async (id, updates) => {
+    const existing = get().massageIncome.find(r => r.id === id && !r.deleted);
+    if (!existing) return;
+    const { accounts } = get();
+    let updatedAccounts = { ...accounts };
+    // Reverse old credit
+    const oldDest = existing.destinationAccount || 'cash';
+    updatedAccounts[oldDest] = (updatedAccounts[oldDest] || 0) - existing.amountCents;
+    // Apply new credit
+    const newDest = updates.destinationAccount || oldDest;
+    const newAmt = updates.amountCents !== undefined ? updates.amountCents : existing.amountCents;
+    updatedAccounts[newDest] = (updatedAccounts[newDest] || 0) + newAmt;
+    const updated = get().massageIncome.map(r => r.id === id ? { ...r, ...updates } : r);
+    set({ massageIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
+    get().recomputeVariance();
+  },
+
+  deleteMassageIncome: async (id) => {
+    const existing = get().massageIncome.find(r => r.id === id && !r.deleted);
+    if (!existing) return;
+    const { accounts } = get();
+    const dest = existing.destinationAccount || 'cash';
+    const updatedAccounts = { ...accounts, [dest]: (accounts[dest] || 0) - existing.amountCents };
+    const updated = get().massageIncome.map(r => r.id === id ? { ...r, deleted: true } : r);
+    set({ massageIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
+    get().recomputeVariance();
+  },
+
+  logMassageExpense: async (record) => {
+    const id = 'massage_exp_' + Date.now();
+    const newRecord = { ...record, id, createdAt: Date.now() };
+    const updated = [...get().massageExpenses, newRecord];
+    set({ massageExpenses: updated });
+    await AsyncStorage.setItem(KEYS.MASSAGE_EXPENSES, JSON.stringify(updated));
+    get().awardXP(3);
+    get().recomputeVariance();
+  },
+
+  editMassageExpense: async (id, updates) => {
+    const updated = get().massageExpenses.map((r) => r.id === id ? { ...r, ...updates } : r);
+    set({ massageExpenses: updated });
+    await AsyncStorage.setItem(KEYS.MASSAGE_EXPENSES, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  deleteMassageExpense: async (id) => {
+    const updated = get().massageExpenses.map((r) => r.id === id ? { ...r, deleted: true } : r);
+    set({ massageExpenses: updated });
+    await AsyncStorage.setItem(KEYS.MASSAGE_EXPENSES, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  logCleaningExpense: async (record) => {
+    const id = 'clean_exp_' + Date.now();
+    const newRecord = { ...record, id, createdAt: Date.now() };
+    const updated = [...get().cleaningExpenses, newRecord];
+    set({ cleaningExpenses: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_EXPENSES, JSON.stringify(updated));
+    get().awardXP(3);
+    get().checkAndAwardBadge('llc_launched');
+    get().recomputeVariance();
+  },
+
+  editCleaningExpense: async (id, updates) => {
+    const updated = get().cleaningExpenses.map((r) => r.id === id ? { ...r, ...updates } : r);
+    set({ cleaningExpenses: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_EXPENSES, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  deleteCleaningExpense: async (id) => {
+    const updated = get().cleaningExpenses.map((r) => r.id === id ? { ...r, deleted: true } : r);
+    set({ cleaningExpenses: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_EXPENSES, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  logCleaningMileage: async (record) => {
+    const id = 'clean_mile_' + Date.now();
+    const newRecord = { ...record, id, createdAt: Date.now() };
+    const updated = [...get().cleaningMileage, newRecord];
+    set({ cleaningMileage: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_MILEAGE, JSON.stringify(updated));
+    get().awardXP(2);
+    get().recomputeVariance();
+  },
+
+  editCleaningMileage: async (id, updates) => {
+    const updated = get().cleaningMileage.map((r) => r.id === id ? { ...r, ...updates } : r);
+    set({ cleaningMileage: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_MILEAGE, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  deleteCleaningMileage: async (id) => {
+    const updated = get().cleaningMileage.map((r) => r.id === id ? { ...r, deleted: true } : r);
+    set({ cleaningMileage: updated });
+    await AsyncStorage.setItem(KEYS.CLEANING_MILEAGE, JSON.stringify(updated));
+    get().recomputeVariance();
   },
 }));
 

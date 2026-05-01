@@ -72,14 +72,12 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
   const events = [];
   if (!incomeEvents) return events;
 
-  const {
-    nextPaycheckDate,
-    paycheckAmountCents = 0,
-    payFrequency,
-    partnerDepositAmountCents = 0,
-    partnerDepositSchedule,
-    partnerDepositLastReceivedMonth,
-  } = incomeEvents;
+  const nextPaycheckDate = incomeEvents.nextPaycheckDate;
+  const paycheckAmountCents = incomeEvents.paycheckAmountCents ?? incomeEvents.paycheckAmount ?? 0;
+  const payFrequency = incomeEvents.payFrequency ?? incomeEvents.paycheckFrequency ?? 'biweekly';
+  const partnerDepositAmountCents = incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0;
+  const partnerDepositSchedule = incomeEvents.partnerDepositSchedule ?? 'last_day';
+  const partnerDepositLastReceivedMonth = incomeEvents.partnerDepositLastReceivedMonth;
 
   // Operator paycheck — bi-weekly forward walk from nextPaycheckDate
   if (nextPaycheckDate != null && paycheckAmountCents > 0) {
@@ -186,29 +184,39 @@ export const findMinimumProjectedBalance = ({
   floorCents = 0,
 }) => {
   const now = Date.now();
+  const currentCycleId = getCurrentCycleId(now);
+  const billsForScan = (bills || []).filter(b => b.lastPaidMonth !== currentCycleId);
   let minimumBalance = currentBalance;
   let minimumDate = null;
   let dipsBelowFloor = false;
+  let triggerBillName = null;
 
   for (let d = 1; d <= daysAhead; d++) {
+    const prevDayMs = now + (d - 1) * 24 * 60 * 60 * 1000;
     const targetDateMs = now + d * 24 * 60 * 60 * 1000;
     const { projectedBalance } = projectBalance({
       currentBalance,
       accountKey,
       targetDateMs,
-      bills,
+      bills: billsForScan,
       incomeEvents,
     });
     if (projectedBalance < minimumBalance) {
       minimumBalance = projectedBalance;
       minimumDate = targetDateMs;
     }
-    if (projectedBalance < floorCents) {
+    if (projectedBalance < floorCents && !dipsBelowFloor) {
       dipsBelowFloor = true;
+      const dayBills = getBillEventsBetween(billsForScan, prevDayMs, targetDateMs)
+        .filter(e => e.accountKey === accountKey);
+      if (dayBills.length > 0) {
+        dayBills.sort((a, b) => b.amountCents - a.amountCents);
+        triggerBillName = dayBills[0].billName;
+      }
     }
   }
 
-  return { minimumBalance, minimumDate, dipsBelowFloor };
+  return { minimumBalance, minimumDate, dipsBelowFloor, triggerBillName };
 };
 
 const PROFILE_ACCOUNTS = {
@@ -230,10 +238,50 @@ export const computeProfileVariance = ({
   incomeEvents,
   groceryBudget,
   varianceConfig = {},
+  massageIncome = [],
+  massageExpenses = [],
+  cleaningExpenses = [],
   now = Date.now(),
 }) => {
   if (profile === 'business') {
-    return { balance: 0, variance: 0, state: 'neutral', annotation: '—', dipPeriod: null, redDate: null };
+    const d = new Date(now);
+    const currentMonth = d.getMonth();
+    const currentYear = d.getFullYear();
+
+    const activeIncome = (massageIncome || []).filter(r => !r.deleted);
+    const activeMassageExp = (massageExpenses || []).filter(r => !r.deleted);
+    const activeCleaningExp = (cleaningExpenses || []).filter(r => !r.deleted);
+    const allExpenses = [...activeMassageExp, ...activeCleaningExp];
+
+    const totalIncome = activeIncome.reduce((s, r) => s + (r.amountCents || 0), 0);
+    const totalExpenses = allExpenses.reduce((s, r) => s + (r.amountCents || 0), 0);
+    const balance = totalIncome - totalExpenses;
+
+    const isThisMonth = (r) => {
+      const rd = new Date(r.date);
+      return rd.getMonth() === currentMonth && rd.getFullYear() === currentYear;
+    };
+    const monthIncome = activeIncome.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
+    const monthExpenses = allExpenses.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
+    const variance = monthIncome - monthExpenses;
+
+    const redThreshold = varianceConfig?.redThresholdCents ?? -30000;
+    let state, annotation;
+    if (totalIncome === 0 && totalExpenses === 0) {
+      state = 'neutral';
+      annotation = 'No data yet';
+    } else if (variance < redThreshold) {
+      state = 'red';
+      annotation = `Net ${formatCentsShort(variance)} this month`;
+    } else if (variance < 0) {
+      state = 'yellow';
+      annotation = `Net ${formatCentsShort(variance)} this month`;
+    } else {
+      state = 'green';
+      annotation = `Net +${formatCentsShort(variance)} this month`;
+    }
+
+    return { balance, variance, state, annotation, dipPeriod: null, redDate: null };
   }
 
   const profileAccounts = PROFILE_ACCOUNTS[profile] || [];
@@ -241,19 +289,14 @@ export const computeProfileVariance = ({
 
   const cycleId = getCurrentCycleId(now);
   const { endMs } = getCycleBounds(cycleId);
-  const redThreshold = varianceConfig.redThresholdCents ?? -30000;
 
-  // Remaining bills this cycle: not yet paid, expectedDay >= today's day
-  const today = new Date(now).getDate();
+  // Remaining bills this cycle: active, correct account, not yet paid
   const allBills = bills || [];
   const remainingBills = allBills
     .filter(b => {
       if (b.isActive === false) return false;
       if (!profileAccounts.includes(b.defaultAccountKey || 'jointChecking')) return false;
-      const day = b.expectedDay || b.dueDay || 1;
-      if (day < today) return false;
-      const cycleMonth = cycleId;
-      if (b.lastPaidMonth === cycleMonth) return false;
+      if (b.lastPaidMonth === cycleId) return false;
       return true;
     })
     .reduce((sum, b) => sum + (b.lastPaidAmountCents != null ? b.lastPaidAmountCents : b.amountCents), 0);
@@ -272,36 +315,37 @@ export const computeProfileVariance = ({
 
   const variance = (currentBalance + projectedIncomeRemaining) - (remainingBills + remainingGrocery);
 
-  // Find minimum projected balance for primary account
+  // Two-tier 14-day dip scan: yellow floor ($300) and red floor ($0)
   const primaryAccount = profileAccounts[0];
   const primaryBalance = accounts[primaryAccount] || 0;
-  const primaryFloor = accountFloors[primaryAccount] ?? (accountFloors.others ?? 0);
+  const yellowFloor = accountFloors[primaryAccount] ?? (accountFloors.others ?? 0);
 
-  const { minimumBalance, minimumDate, dipsBelowFloor } = findMinimumProjectedBalance({
+  const { dipsBelowFloor: dipsYellow, triggerBillName: yellowTrigger } = findMinimumProjectedBalance({
     currentBalance: primaryBalance,
     accountKey: primaryAccount,
     bills: allBills,
     incomeEvents,
     daysAhead: 14,
-    floorCents: primaryFloor,
+    floorCents: yellowFloor,
   });
 
-  const dipPeriod = dipsBelowFloor && minimumDate
-    ? { startMs: minimumDate, endMs: minimumDate + 3 * 24 * 60 * 60 * 1000 }
-    : null;
+  const { dipsBelowFloor: dipsRed, triggerBillName: redTrigger } = findMinimumProjectedBalance({
+    currentBalance: primaryBalance,
+    accountKey: primaryAccount,
+    bills: allBills,
+    incomeEvents,
+    daysAhead: 14,
+    floorCents: 0,
+  });
 
-  const redDate = variance <= redThreshold && minimumDate ? minimumDate : null;
-
-  // State classification
+  // State classification: red > yellow > green
   let state;
-  if (variance <= redThreshold || (redDate !== null)) {
+  if (dipsRed) {
     state = 'red';
-  } else if (dipsBelowFloor) {
+  } else if (dipsYellow) {
     state = 'yellow';
-  } else if (variance >= 0) {
-    state = 'green';
   } else {
-    state = 'yellow';
+    state = 'green';
   }
 
   // Annotation
@@ -309,20 +353,12 @@ export const computeProfileVariance = ({
   if (state === 'green') {
     annotation = variance > 50000 ? 'On track for rollover' : 'On track';
   } else if (state === 'yellow') {
-    if (dipPeriod) {
-      annotation = `Tight: ${formatAnnotationDate(dipPeriod.startMs)}–${formatAnnotationDate(dipPeriod.endMs)}`;
-    } else {
-      annotation = 'Margin thin';
-    }
+    annotation = yellowTrigger ? `Enters yellow with ${yellowTrigger}` : 'Balance approaches limit';
   } else if (state === 'red') {
-    if (redDate) {
-      annotation = `Deposit needed by ${formatAnnotationDate(redDate)}`;
-    } else {
-      annotation = `Variance: -${formatCentsShort(Math.abs(variance))}`;
-    }
+    annotation = redTrigger ? `Enters red with ${redTrigger}` : 'Deposit needed';
   } else {
     annotation = '—';
   }
 
-  return { balance: currentBalance, variance, state, annotation, dipPeriod, redDate };
+  return { balance: currentBalance, variance, state, annotation, dipPeriod: null, redDate: null };
 };
