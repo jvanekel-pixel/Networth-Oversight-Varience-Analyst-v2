@@ -1,0 +1,51 @@
+Two tasks. T1 both. Work in order. Terminal only.
+
+---
+
+TASK 1 — Paycheck split configuration in Settings
+
+Read src/screens/SettingsScreen.js and src/store/useStore.js.
+
+Add a new config structure to nova_v2_config:
+  paycheckSplits: [
+    { id: '1', accountKey: 'jointChecking', label: 'Joint Checking', amountCents: 99000 },
+    { id: '2', accountKey: 'entSavings', label: 'ENT Savings', amountCents: 5000 },
+    { id: '3', accountKey: 'entChecking', label: 'ENT Checking', amountCents: 31300 },
+  ]
+
+In SettingsScreen.js, find the Pay Cycle Configuration section.
+Add a "Paycheck Split" sub-section below it:
+  - One row per split entry showing: account label + decimal amount input
+  - Each input saves on blur via updateNovaConfig, converting to cents via parseBillInput
+  - A running total below the rows showing the sum of all splits formatted as dollars
+  - Label the total row so the user can see if splits add up to their full paycheck
+
+Do not add/remove split rows in this pass — fixed 3 rows is fine for V1.
+
+---
+
+TASK 2 — Wire distributePaycheck to use split config + fix confirmation modal
+
+Read src/store/useStore.js. Find distributePaycheck.
+Currently it deposits the full amount into one account. Replace that logic:
+  - Read paycheckSplits from nova_v2_config
+  - For each split entry, credit that account by amountCents
+  - If paycheckSplits is missing or empty, fall back to crediting entChecking
+    with the full amount (safe default)
+  - After all credits, call generatePostPaydayActions() and recomputeVariance
+
+Read wherever the "record paycheck" confirmation modal is rendered
+(likely PersonalScreen.js or a PaycheckModal).
+Replace the current single amount confirmation with:
+  - Title: "Confirm Deposit Amounts"
+  - One editable row per split: account label + amount input pre-filled from
+    paycheckSplits config
+  - User can adjust any amount before confirming (e.g. OT, garnishment)
+  - On confirm: use the edited amounts from the modal, not the raw config values
+  - Pass the final amounts into distributePaycheck as an override array
+
+---
+
+After both tasks:
+git add -A
+git commit -m "Paycheck split config in Settings, split-aware distributePaycheck, confirm modal overhaul"

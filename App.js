@@ -16,6 +16,7 @@ import {
   scheduleLocalNotification,
   scheduleCalendarNotification,
   cancelAllNotifications,
+  schedulePaydayReminder,
 } from './src/utils/notifications';
 import { useExport } from './src/hooks/useExport';
 
@@ -120,6 +121,13 @@ async function scheduleRecurringNotifications(incomeEvents) {
         { type: 'date', date: dayBefore },
       );
     }
+  }
+
+  // Payday reminder — 09:00 on nextPaycheckDate itself
+  const novaConfigRaw = await AsyncStorage.getItem('nova_v2_config');
+  const novaConfig = novaConfigRaw ? JSON.parse(novaConfigRaw) : {};
+  if (novaConfig.paydayReminderEnabled !== false && incomeEvents?.nextPaycheckDate) {
+    await schedulePaydayReminder(incomeEvents.nextPaycheckDate);
   }
 }
 

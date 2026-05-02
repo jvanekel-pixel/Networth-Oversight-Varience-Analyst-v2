@@ -43,6 +43,11 @@ const notifications = {
     title: 'PAYDAY APPROACHING',
     body: 'Paycheck expected on {paycheckDate}. Rollover sweep will run automatically. Verify your account floors are correct.',
   },
+  paydayReminder: {
+    enabled: true,
+    title: 'Payday 💰',
+    body: 'Your paycheck should be in. Head to NOVA and record it.',
+  },
 };
 
 export default notifications;

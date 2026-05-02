@@ -5,6 +5,7 @@ import {
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCentsShort, parseBillInput } from '../utils/currency';
+import notificationsConfig from '../config/notifications.config';
 import { formatDate } from '../utils/dates';
 import { useExport } from '../hooks/useExport';
 import AccountFloorsSection from '../components/settings/AccountFloorsSection';
@@ -117,6 +118,11 @@ export default function SettingsScreen() {
     DEFAULT_SPLITS.map(s => (s.amountCents / 100).toFixed(2))
   );
 
+  // --- Payday Reminder ---
+  const [paydayReminderEnabled, setPaydayReminderEnabled] = useState(
+    notificationsConfig.paydayReminder.enabled ?? true
+  );
+
   // --- Post-Payday Actions ---
   const [ppdExpiryHours, setPpdExpiryHours] = useState('12');
   const [ppdToggles, setPpdToggles] = useState({ venmo: true, savings: true });
@@ -127,6 +133,9 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (novaConfig?.paycheckSplits?.length) {
       setSplitRaws(novaConfig.paycheckSplits.map(s => (s.amountCents / 100).toFixed(2)));
+    }
+    if (novaConfig?.paydayReminderEnabled !== undefined) {
+      setPaydayReminderEnabled(novaConfig.paydayReminderEnabled);
     }
   }, [novaConfig]);
 
@@ -243,6 +252,11 @@ export default function SettingsScreen() {
     await updateNovaConfig({ postPaydayActionToggles: updated });
   };
 
+  const handlePaydayReminderToggle = async (val) => {
+    setPaydayReminderEnabled(val);
+    await updateNovaConfig({ paydayReminderEnabled: val });
+  };
+
   const handleSplitBlur = async (idx, raw) => {
     const cents = parseBillInput(raw) || 0;
     const baseSplits = novaConfig?.paycheckSplits || DEFAULT_SPLITS;
@@ -287,6 +301,15 @@ export default function SettingsScreen() {
             {followingLabel && <Text style={styles.previewText}>Following: {followingLabel}</Text>}
           </>
         )}
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Remind me on payday</Text>
+          <Switch
+            value={paydayReminderEnabled}
+            onValueChange={handlePaydayReminderToggle}
+            trackColor={{ false: theme.borderColorDim, true: theme.accent }}
+            thumbColor={theme.background}
+          />
+        </View>
         <TouchableOpacity style={styles.saveBtn} onPress={handleSavePaySchedule}>
           <Text style={styles.saveBtnText}>SAVE</Text>
         </TouchableOpacity>
