@@ -107,7 +107,7 @@ function getAccountKeyByRole(role, accountRegistry, fallback) {
   return entry ? (entry.legacyKey || entry.id) : fallback;
 }
 
-export const getIncomeEventsBetween = (incomeEvents, startMs, endMs, accountRegistry = []) => {
+export const getIncomeEventsBetween = (incomeEvents, startMs, endMs, accountRegistry = [], userMode = null) => {
   const events = [];
   if (!incomeEvents) return events;
 
@@ -138,8 +138,8 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs, accountRegi
     }
   }
 
-  // Partner deposit — one per month
-  if (partnerDepositAmountCents > 0) {
+  // Partner deposit — one per month (skipped for solo users)
+  if (userMode !== 'solo' && partnerDepositAmountCents > 0) {
     const startDate = new Date(startMs);
     const endDate = new Date(endMs);
     let y = startDate.getFullYear();
@@ -183,10 +183,11 @@ export const projectBalance = ({
   groceryWeeklyLimit = 0,
   groceryAccountKey = 'jointChecking',
   accountRegistry = [],
+  userMode = null,
 }) => {
   const now = Date.now();
   const billEvents = getBillEventsBetween(bills, now, targetDateMs);
-  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, targetDateMs, accountRegistry);
+  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, targetDateMs, accountRegistry, userMode);
   const eventLog = [];
 
   let balance = currentBalance;
@@ -225,6 +226,7 @@ export const findMinimumProjectedBalance = ({
   daysAhead = 14,
   floorCents = 0,
   accountRegistry = [],
+  userMode = null,
 }) => {
   const now = Date.now();
   const currentCycleId = getCurrentCycleId(now);
@@ -244,6 +246,7 @@ export const findMinimumProjectedBalance = ({
       bills: billsForScan,
       incomeEvents,
       accountRegistry,
+      userMode,
     });
     if (projectedBalance < minimumBalance) {
       minimumBalance = projectedBalance;
@@ -281,6 +284,7 @@ export const computeProfileVariance = ({
   cleaningExpenses = [],
   now = Date.now(),
   accountRegistry = [],
+  userMode = null,
 }) => {
   if (profile === 'business') {
     const d = new Date(now);
@@ -347,7 +351,7 @@ export const computeProfileVariance = ({
     : 0;
 
   // Projected income remaining (income events for this profile's accounts, now → end of cycle)
-  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, endMs, accountRegistry);
+  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, endMs, accountRegistry, userMode);
   const projectedIncomeRemaining = incomeEvts
     .filter(e => profileAccounts.includes(e.accountKey))
     .reduce((sum, e) => sum + e.amountCents, 0);
@@ -367,6 +371,7 @@ export const computeProfileVariance = ({
     daysAhead: 14,
     floorCents: yellowFloor,
     accountRegistry,
+    userMode,
   });
 
   const { dipsBelowFloor: dipsRed, triggerBillName: redTrigger } = findMinimumProjectedBalance({
@@ -377,6 +382,7 @@ export const computeProfileVariance = ({
     daysAhead: 14,
     floorCents: 0,
     accountRegistry,
+    userMode,
   });
 
   // State classification: red > yellow > green

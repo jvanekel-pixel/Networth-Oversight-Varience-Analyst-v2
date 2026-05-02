@@ -16,6 +16,7 @@ import AccountsSection from '../components/settings/AccountsSection';
 import SpendingBucketsSection from '../components/settings/SpendingBucketsSection';
 import SavingsGoalSection from '../components/settings/SavingsGoalSection';
 import EntrepreneurModeSection from '../components/settings/EntrepreneurModeSection';
+import PartnerDepositSection from '../components/settings/PartnerDepositSection';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FREQ_OPTIONS = [
@@ -23,11 +24,6 @@ const FREQ_OPTIONS = [
   { label: 'Bi-weekly',   value: 'biweekly' },
   { label: 'Monthly',     value: 'monthly' },
   { label: 'Unscheduled', value: 'unscheduled' },
-];
-
-const SCHEDULE_OPTIONS = [
-  { label: 'Last day',    value: 'last_day' },
-  { label: 'Last Friday', value: 'last_friday' },
 ];
 
 const EXPORT_SCHEDULE_OPTIONS = [
@@ -86,8 +82,7 @@ function SegmentedControl({ options, value, onChange }) {
 export default function SettingsScreen() {
   const {
     incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
-    recordPartnerDeposit, awardXP, rotateFlavorTextForEvent, resetStore,
-    updateVarianceConfig, updateNovaConfig,
+    resetStore, updateVarianceConfig, updateNovaConfig,
   } = useStore();
   const { exportAllData, importAllData, exportBusinessCsvs } = useExport();
 
@@ -96,10 +91,6 @@ export default function SettingsScreen() {
   const [pcMonth, setPcMonth] = useState('');
   const [pcDay, setPcDay] = useState('');
   const [pcYear, setPcYear] = useState('');
-
-  // --- Partner Deposit ---
-  const [depositAmtRaw, setDepositAmtRaw] = useState('');
-  const [depositSchedule, setDepositSchedule] = useState('last_day');
 
   // --- Variance Thresholds ---
   const [hhRedRaw, setHhRedRaw] = useState('');
@@ -153,9 +144,6 @@ export default function SettingsScreen() {
       setPcDay(String(d.getDate()));
       setPcYear(String(d.getFullYear()));
     }
-    const dAmt = incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0;
-    setDepositAmtRaw(dAmt > 0 ? (dAmt / 100).toFixed(2) : '');
-    setDepositSchedule(incomeEvents.partnerDepositSchedule || 'last_day');
   }, []);
 
   useEffect(() => {
@@ -195,37 +183,11 @@ export default function SettingsScreen() {
   const followingMs = computeFollowingPaycheck(nextPaycheckDateMs, payFrequency);
   const followingLabel = followingMs ? formatDate(followingMs) : null;
 
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const depositConfirmedThisMonth = incomeEvents?.partnerDepositLastReceivedMonth === currentMonth;
-  const lastConfirmedDate = incomeEvents?.partnerDepositLastReceivedMonth
-    ? (() => {
-        const [y, m] = incomeEvents.partnerDepositLastReceivedMonth.split('-').map(Number);
-        return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      })()
-    : null;
-
   const handleSavePaySchedule = async () => {
     const nextPaycheckDate = payFrequency === 'unscheduled' ? null : nextPaycheckDateMs;
     await updateConfig({ incomeEvents: { ...incomeEvents, payFrequency, nextPaycheckDate } });
     recomputeVariance();
     Alert.alert('Saved', 'Pay schedule updated.');
-  };
-
-  const handleSavePartnerDeposit = async () => {
-    const partnerDepositAmountCents = parseBillInput(depositAmtRaw);
-    await updateConfig({ incomeEvents: { ...incomeEvents, partnerDepositAmountCents, partnerDepositSchedule: depositSchedule } });
-    recomputeVariance();
-    Alert.alert('Saved', 'Partner deposit updated.');
-  };
-
-  const handleConfirmReceived = async () => {
-    const amt = parseBillInput(depositAmtRaw) || (incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0);
-    if (!amt) { Alert.alert('Amount Required', 'Enter the deposit amount first.'); return; }
-    await recordPartnerDeposit(amt);
-    awardXP(10);
-    rotateFlavorTextForEvent('partner_deposit_received');
-    Alert.alert('Confirmed', 'Partner deposit recorded.');
   };
 
   const handleSaveVariance = async () => {
@@ -412,27 +374,7 @@ export default function SettingsScreen() {
 
       {/* 3. PARTNER DEPOSIT */}
       <View style={styles.section}>
-        <SectionHeader title="PARTNER DEPOSIT" />
-        <Text style={styles.label}>Expected amount</Text>
-        <TextInput style={styles.input} placeholder="e.g. 500.00" placeholderTextColor={theme.textDim} keyboardType="decimal-pad" value={depositAmtRaw} onChangeText={setDepositAmtRaw} />
-        {depositAmtRaw.length > 0 && <Text style={styles.previewText}>{formatCentsShort(parseBillInput(depositAmtRaw))}</Text>}
-        <Text style={styles.label}>Expected schedule</Text>
-        <SegmentedControl options={SCHEDULE_OPTIONS} value={depositSchedule} onChange={setDepositSchedule} />
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSavePartnerDeposit}>
-          <Text style={styles.saveBtnText}>SAVE</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.confirmBtn, depositConfirmedThisMonth && styles.confirmBtnDisabled]}
-          onPress={depositConfirmedThisMonth ? undefined : handleConfirmReceived}
-          disabled={depositConfirmedThisMonth}
-        >
-          <Text style={[styles.confirmBtnText, depositConfirmedThisMonth && styles.confirmBtnTextDisabled]}>
-            CONFIRM RECEIVED
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.lastConfirmedText}>
-          {depositConfirmedThisMonth ? `Last confirmed: ${lastConfirmedDate || 'this month'}` : 'Not confirmed this month'}
-        </Text>
+        <PartnerDepositSection />
       </View>
 
       {/* 4. VARIANCE THRESHOLDS */}

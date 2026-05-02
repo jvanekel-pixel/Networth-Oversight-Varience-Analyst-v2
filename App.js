@@ -143,6 +143,10 @@ async function scheduleRecurringNotifications(incomeEvents) {
 }
 
 async function runOneTimeChecks(incomeEvents, checkAndRunAutoExport) {
+  const novaConfigRaw = await AsyncStorage.getItem('nova_v2_config');
+  const novaConfig = novaConfigRaw ? JSON.parse(novaConfigRaw) : {};
+  const userMode = novaConfig.userMode;
+
   const toggles = await getNotifToggles();
 
   // CHECK A — Balance nudge (>48h inactive), dedup via NUDGE_SENT_KEY
@@ -162,8 +166,8 @@ async function runOneTimeChecks(incomeEvents, checkAndRunAutoExport) {
     }
   }
 
-  // CHECK B — Partner deposit not received this month
-  if (toggles.partnerDepositMissed !== false && incomeEvents?.partnerDepositExpectedDay) {
+  // CHECK B — Partner deposit not received this month (skip for solo users)
+  if (userMode !== 'solo' && toggles.partnerDepositMissed !== false && incomeEvents?.partnerDepositExpectedDay) {
     const today = new Date();
     const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const dayOfMonth = today.getDate();

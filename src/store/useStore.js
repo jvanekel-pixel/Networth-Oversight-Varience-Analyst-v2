@@ -905,6 +905,7 @@ const useStore = create((set, get) => ({
         massageExpenses: state.massageExpenses,
         cleaningExpenses: state.cleaningExpenses,
         accountRegistry: state.accountRegistry,
+        userMode: state.novaConfig?.userMode ?? null,
         now,
       });
     }
