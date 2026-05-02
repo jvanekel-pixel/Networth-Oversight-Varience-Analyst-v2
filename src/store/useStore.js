@@ -245,6 +245,7 @@ const useStore = create((set, get) => ({
   setOnboardingComplete: async () => {
     set({ onboardingComplete: true });
     await AsyncStorage.setItem(KEYS.onboardingComplete, JSON.stringify(true));
+    get().awardXP(25);
   },
 
   updateAccountBalance: async (key, cents) => {
