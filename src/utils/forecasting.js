@@ -68,6 +68,24 @@ export const getBillEventsBetween = (bills, startMs, endMs) => {
   return events;
 };
 
+function addPayFrequency(cursorMs, payFrequency) {
+  if (payFrequency === 'weekly') return cursorMs + 7 * 24 * 60 * 60 * 1000;
+  if (payFrequency === 'monthly') {
+    const d = new Date(cursorMs);
+    return new Date(d.getFullYear(), d.getMonth() + 1, d.getDate()).getTime();
+  }
+  return cursorMs + 14 * 24 * 60 * 60 * 1000;
+}
+
+function subtractPayFrequency(cursorMs, payFrequency) {
+  if (payFrequency === 'weekly') return cursorMs - 7 * 24 * 60 * 60 * 1000;
+  if (payFrequency === 'monthly') {
+    const d = new Date(cursorMs);
+    return new Date(d.getFullYear(), d.getMonth() - 1, d.getDate()).getTime();
+  }
+  return cursorMs - 14 * 24 * 60 * 60 * 1000;
+}
+
 export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
   const events = [];
   if (!incomeEvents) return events;
@@ -79,12 +97,11 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
   const partnerDepositSchedule = incomeEvents.partnerDepositSchedule ?? 'last_day';
   const partnerDepositLastReceivedMonth = incomeEvents.partnerDepositLastReceivedMonth;
 
-  // Operator paycheck — bi-weekly forward walk from nextPaycheckDate
-  if (nextPaycheckDate != null && paycheckAmountCents > 0) {
+  // Operator paycheck — forward walk using configured pay frequency
+  if (nextPaycheckDate != null && paycheckAmountCents > 0 && payFrequency !== 'unscheduled') {
     let cursor = nextPaycheckDate;
-    // Walk backward to find first occurrence >= startMs
-    while (cursor > startMs) cursor -= 14 * 24 * 60 * 60 * 1000;
-    while (cursor < startMs) cursor += 14 * 24 * 60 * 60 * 1000;
+    while (cursor > startMs) cursor = subtractPayFrequency(cursor, payFrequency);
+    while (cursor < startMs) cursor = addPayFrequency(cursor, payFrequency);
 
     while (cursor <= endMs) {
       events.push({
@@ -93,7 +110,7 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
         amountCents: paycheckAmountCents,
         accountKey: 'entChecking',
       });
-      cursor += 14 * 24 * 60 * 60 * 1000;
+      cursor = addPayFrequency(cursor, payFrequency);
     }
   }
 
