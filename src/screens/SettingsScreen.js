@@ -90,7 +90,6 @@ export default function SettingsScreen() {
   const [pcMonth, setPcMonth] = useState('');
   const [pcDay, setPcDay] = useState('');
   const [pcYear, setPcYear] = useState('');
-  const [paycheckAmtRaw, setPaycheckAmtRaw] = useState('');
 
   // --- Partner Deposit ---
   const [depositAmtRaw, setDepositAmtRaw] = useState('');
@@ -140,8 +139,6 @@ export default function SettingsScreen() {
       setPcDay(String(d.getDate()));
       setPcYear(String(d.getFullYear()));
     }
-    const amt = incomeEvents.paycheckAmountCents ?? incomeEvents.paycheckAmount ?? 0;
-    setPaycheckAmtRaw(amt > 0 ? (amt / 100).toFixed(2) : '');
     const dAmt = incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0;
     setDepositAmtRaw(dAmt > 0 ? (dAmt / 100).toFixed(2) : '');
     setDepositSchedule(incomeEvents.partnerDepositSchedule || 'last_day');
@@ -195,9 +192,8 @@ export default function SettingsScreen() {
     : null;
 
   const handleSavePaySchedule = async () => {
-    const paycheckAmountCents = parseBillInput(paycheckAmtRaw);
     const nextPaycheckDate = payFrequency === 'unscheduled' ? null : nextPaycheckDateMs;
-    await updateConfig({ incomeEvents: { ...incomeEvents, payFrequency, nextPaycheckDate, paycheckAmountCents } });
+    await updateConfig({ incomeEvents: { ...incomeEvents, payFrequency, nextPaycheckDate } });
     recomputeVariance();
     Alert.alert('Saved', 'Pay schedule updated.');
   };
@@ -291,9 +287,6 @@ export default function SettingsScreen() {
             {followingLabel && <Text style={styles.previewText}>Following: {followingLabel}</Text>}
           </>
         )}
-        <Text style={styles.label}>Paycheck amount</Text>
-        <TextInput style={styles.input} placeholder="e.g. 2800.00" placeholderTextColor={theme.textDim} keyboardType="decimal-pad" value={paycheckAmtRaw} onChangeText={setPaycheckAmtRaw} />
-        {paycheckAmtRaw.length > 0 && <Text style={styles.previewText}>{formatCentsShort(parseBillInput(paycheckAmtRaw))}</Text>}
         <TouchableOpacity style={styles.saveBtn} onPress={handleSavePaySchedule}>
           <Text style={styles.saveBtnText}>SAVE</Text>
         </TouchableOpacity>
