@@ -91,7 +91,15 @@ const initialState = {
   lastCycleResetMonth: null,
   groceryStreakWeeks: 0,
   postPaydayActions: [],
-  novaConfig: { postPaydayExpiryHours: 12, postPaydayActionToggles: { venmo: true, savings: true } },
+  novaConfig: {
+    postPaydayExpiryHours: 12,
+    postPaydayActionToggles: { venmo: true, savings: true },
+    paycheckSplits: [
+      { id: '1', accountKey: 'jointChecking', label: 'Joint Checking', amountCents: 99000 },
+      { id: '2', accountKey: 'entSavings',    label: 'ENT Savings',    amountCents: 5000  },
+      { id: '3', accountKey: 'entChecking',   label: 'ENT Checking',   amountCents: 31300 },
+    ],
+  },
   groceryDisciplineStreak: 0,
 };
 
@@ -354,8 +362,8 @@ const useStore = create((set, get) => ({
     get().rotateFlavorText(personality.starterPool);
   },
 
-  distributePaycheck: async (grossAmountCents) => {
-    const { accounts, distribution, incomeEvents, transactions } = get();
+  distributePaycheck: async (grossAmountCents, splitOverrides) => {
+    const { accounts, incomeEvents, transactions, novaConfig } = get();
     const now = Date.now();
     const gross = Math.floor(grossAmountCents);
     let accts = { ...accounts };
@@ -363,25 +371,21 @@ const useStore = create((set, get) => ({
     let idx = 0;
     const mkId = () => `${now}_${++idx}`;
 
-    // 1. Log gross paycheck as income to entChecking
-    accts.entChecking = (accts.entChecking || 0) + gross;
-    newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: gross, category: 'Paycheck', description: 'Paycheck', timestamp: now });
+    const splits = splitOverrides || novaConfig?.paycheckSplits;
 
-    // 3. Transfer distribution.entSavings from entChecking → entSavings
-    const savingsAmt = distribution.entSavings || 0;
-    accts.entChecking -= savingsAmt;
-    accts.entSavings = (accts.entSavings || 0) + savingsAmt;
-    newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: -savingsAmt, category: 'Transfer', description: 'Transfer → ENT Savings', timestamp: now });
-    newTxs.push({ id: mkId(), accountKey: 'entSavings', amountCents: savingsAmt, category: 'Transfer', description: 'Transfer from ENT Checking', timestamp: now });
+    if (splits && splits.length > 0) {
+      for (const split of splits) {
+        const amt = Math.floor(split.amountCents || 0);
+        if (amt === 0) continue;
+        accts[split.accountKey] = (accts[split.accountKey] || 0) + amt;
+        newTxs.push({ id: mkId(), accountKey: split.accountKey, amountCents: amt, category: 'Paycheck', description: `Paycheck — ${split.label}`, timestamp: now });
+      }
+    } else {
+      accts.entChecking = (accts.entChecking || 0) + gross;
+      newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: gross, category: 'Paycheck', description: 'Paycheck', timestamp: now });
+    }
 
-    // 4. Transfer distribution.venmo from entChecking → venmo
-    const venmoAmt = distribution.venmo || 0;
-    accts.entChecking -= venmoAmt;
-    accts.venmo = (accts.venmo || 0) + venmoAmt;
-    newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: -venmoAmt, category: 'Transfer', description: 'Transfer → Venmo', timestamp: now });
-    newTxs.push({ id: mkId(), accountKey: 'venmo', amountCents: venmoAmt, category: 'Transfer', description: 'Transfer from ENT Checking', timestamp: now });
-
-    // 5. Advance nextPaycheckDate by the correct frequency interval
+    // Advance nextPaycheckDate by the correct frequency interval
     const currentNext = incomeEvents.nextPaycheckDate;
     const freq = incomeEvents.payFrequency || incomeEvents.paycheckFrequency || 'biweekly';
     let nextPaycheckDate;

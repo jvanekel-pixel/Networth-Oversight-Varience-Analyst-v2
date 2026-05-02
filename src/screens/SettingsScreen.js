@@ -79,7 +79,7 @@ function SegmentedControl({ options, value, onChange }) {
 
 export default function SettingsScreen() {
   const {
-    incomeEvents, varianceConfig, updateConfig, recomputeVariance,
+    incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
     recordPartnerDeposit, awardXP, rotateFlavorTextForEvent, resetStore,
     updateVarianceConfig, updateNovaConfig,
   } = useStore();
@@ -108,12 +108,28 @@ export default function SettingsScreen() {
   // --- Export ---
   const [exportSchedule, setExportSchedule] = useState('off');
 
+  // --- Paycheck Splits ---
+  const DEFAULT_SPLITS = [
+    { id: '1', accountKey: 'jointChecking', label: 'Joint Checking', amountCents: 99000 },
+    { id: '2', accountKey: 'entSavings',    label: 'ENT Savings',    amountCents: 5000  },
+    { id: '3', accountKey: 'entChecking',   label: 'ENT Checking',   amountCents: 31300 },
+  ];
+  const [splitRaws, setSplitRaws] = useState(
+    DEFAULT_SPLITS.map(s => (s.amountCents / 100).toFixed(2))
+  );
+
   // --- Post-Payday Actions ---
   const [ppdExpiryHours, setPpdExpiryHours] = useState('12');
   const [ppdToggles, setPpdToggles] = useState({ venmo: true, savings: true });
 
   // --- Danger Zone ---
   const [resetInput, setResetInput] = useState('');
+
+  useEffect(() => {
+    if (novaConfig?.paycheckSplits?.length) {
+      setSplitRaws(novaConfig.paycheckSplits.map(s => (s.amountCents / 100).toFixed(2)));
+    }
+  }, [novaConfig]);
 
   useEffect(() => {
     if (!incomeEvents) return;
@@ -231,6 +247,13 @@ export default function SettingsScreen() {
     await updateNovaConfig({ postPaydayActionToggles: updated });
   };
 
+  const handleSplitBlur = async (idx, raw) => {
+    const cents = parseBillInput(raw) || 0;
+    const baseSplits = novaConfig?.paycheckSplits || DEFAULT_SPLITS;
+    const splits = baseSplits.map((s, i) => i === idx ? { ...s, amountCents: cents } : s);
+    await updateNovaConfig({ paycheckSplits: splits });
+  };
+
   const handleSaveExportSchedule = async (val) => {
     setExportSchedule(val);
     const raw = await AsyncStorage.getItem('nova_v2_export_config');
@@ -274,6 +297,38 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.saveBtn} onPress={handleSavePaySchedule}>
           <Text style={styles.saveBtnText}>SAVE</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* 2a. PAYCHECK SPLIT */}
+      <View style={styles.section}>
+        <SectionHeader title="PAYCHECK SPLIT" />
+        {(novaConfig?.paycheckSplits || DEFAULT_SPLITS).map((split, idx) => (
+          <View key={split.id} style={styles.splitRow}>
+            <Text style={styles.splitLabel}>{split.label}</Text>
+            <TextInput
+              style={styles.splitInput}
+              keyboardType="decimal-pad"
+              value={splitRaws[idx] ?? ''}
+              onChangeText={raw => {
+                const updated = [...splitRaws];
+                updated[idx] = raw;
+                setSplitRaws(updated);
+              }}
+              onBlur={() => handleSplitBlur(idx, splitRaws[idx])}
+              placeholderTextColor={theme.textDim}
+              placeholder="0.00"
+            />
+          </View>
+        ))}
+        {(() => {
+          const totalCents = splitRaws.reduce((sum, r) => sum + (parseBillInput(r) || 0), 0);
+          return (
+            <View style={styles.splitTotalRow}>
+              <Text style={styles.splitTotalLabel}>Total splits</Text>
+              <Text style={styles.splitTotalAmt}>{formatCentsShort(totalCents)}</Text>
+            </View>
+          );
+        })()}
       </View>
 
       {/* 2b. POST-PAYDAY ACTIONS */}
@@ -463,6 +518,12 @@ const styles = StyleSheet.create({
   toggleLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, flex: 1 },
   importBtn: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.accent, marginTop: theme.spacingSM },
   importBtnText: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
+  splitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacingXS },
+  splitLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, flex: 1 },
+  splitInput: { backgroundColor: theme.backgroundPanel, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, width: 110, textAlign: 'right' },
+  splitTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.borderColorDim, paddingTop: theme.spacingSM, marginTop: theme.spacingXS },
+  splitTotalLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
+  splitTotalAmt: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
   dangerSection: { borderColor: theme.statusDanger },
   dangerHeader: { color: theme.statusDanger, fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: theme.spacingMD, letterSpacing: 1 },
   dangerLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS, marginTop: theme.spacingSM },

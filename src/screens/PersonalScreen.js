@@ -26,43 +26,64 @@ function Card({ children, style }) {
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
-function PaycheckModal({ visible, currentAmount, onSubmit, onClose }) {
-  const [raw, setRaw] = useState('');
+function PaycheckModal({ visible, splits, onSubmit, onClose }) {
+  const [splitRaws, setSplitRaws] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (visible) setRaw(currentAmount > 0 ? (currentAmount / 100).toFixed(2) : '');
+    if (visible && splits?.length) {
+      setSplitRaws(splits.map(s => (s.amountCents / 100).toFixed(2)));
+    }
+    if (!visible) {
+      setSplitRaws([]);
+      setIsSubmitting(false);
+    }
   }, [visible]);
 
-  const handleClose = () => { setRaw(''); setIsSubmitting(false); onClose(); };
+  const handleClose = () => { setSplitRaws([]); setIsSubmitting(false); onClose(); };
   const handleSubmit = async () => {
-    if (!raw || isSubmitting) return;
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    await onSubmit(parseBillInput(raw));
-    setRaw(''); setIsSubmitting(false); onClose();
+    const overrides = (splits || []).map((s, i) => ({
+      ...s,
+      amountCents: parseBillInput(splitRaws[i] ?? '') || 0,
+    }));
+    const grossCents = overrides.reduce((sum, s) => sum + s.amountCents, 0);
+    await onSubmit(grossCents, overrides);
+    setSplitRaws([]); setIsSubmitting(false); onClose();
   };
 
-  const previewCents = parseBillInput(raw);
+  const totalCents = splitRaws.reduce((sum, r) => sum + (parseBillInput(r) || 0), 0);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.backdrop}>
         <View style={styles.modalPanel}>
-          <Text style={styles.modalTitle}>RECORD PAYCHECK</Text>
-          <Text style={styles.modalSub}>Rollover sweep runs first, then distribution.</Text>
-          <TextInput
-            style={styles.modalInput}
-            placeholder="Gross amount (e.g. 2800.00)"
-            placeholderTextColor={theme.textDim}
-            keyboardType="decimal-pad"
-            value={raw}
-            onChangeText={setRaw}
-          />
-          {raw.length > 0 && (
-            <Text style={styles.modalPreview}>{formatCents(previewCents)}</Text>
-          )}
+          <Text style={styles.modalTitle}>CONFIRM DEPOSIT AMOUNTS</Text>
+          <Text style={styles.modalSub}>Adjust if needed (OT, garnishment, etc.)</Text>
+          {(splits || []).map((split, i) => (
+            <View key={split.id} style={styles.splitRow}>
+              <Text style={styles.splitLabel}>{split.label}</Text>
+              <TextInput
+                style={styles.splitInput}
+                keyboardType="decimal-pad"
+                value={splitRaws[i] ?? ''}
+                onChangeText={raw => {
+                  const updated = [...splitRaws];
+                  updated[i] = raw;
+                  setSplitRaws(updated);
+                }}
+                placeholderTextColor={theme.textDim}
+                placeholder="0.00"
+              />
+            </View>
+          ))}
+          <View style={styles.splitTotalRow}>
+            <Text style={styles.splitTotalLabel}>Total</Text>
+            <Text style={styles.splitTotalAmt}>{formatCentsShort(totalCents)}</Text>
+          </View>
           <TouchableOpacity style={[styles.modalSubmit, isSubmitting && styles.btnDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
-            <Text style={styles.modalSubmitText}>CONFIRM PAYCHECK</Text>
+            <Text style={styles.modalSubmitText}>CONFIRM</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.modalCancel} onPress={handleClose}>
             <Text style={styles.modalCancelText}>CANCEL</Text>
@@ -108,6 +129,7 @@ export default function PersonalScreen() {
     transactions,
     massageIncome,
     postPaydayActions,
+    novaConfig,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -169,15 +191,15 @@ export default function PersonalScreen() {
     checkSpendingFloors();
   };
 
-  const handlePaycheck = async (grossCents) => {
-    await distributePaycheck(grossCents);
+  const handlePaycheck = async (grossCents, splitOverrides) => {
+    await distributePaycheck(grossCents, splitOverrides);
     checkSpendingFloors();
   };
 
   const { paycheckAmount = 0, nextPaycheckDate = null } = incomeEvents;
 
-  const now = Date.now();
-  const pendingActions = (postPaydayActions || []).filter(a => !a.completed && now < a.expiresAt);
+  const actionsNow = Date.now();
+  const pendingActions = (postPaydayActions || []).filter(a => !a.completed && actionsNow < a.expiresAt);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -411,7 +433,7 @@ export default function PersonalScreen() {
       />
       <PaycheckModal
         visible={paycheckVisible}
-        currentAmount={paycheckAmount}
+        splits={novaConfig?.paycheckSplits}
         onSubmit={handlePaycheck}
         onClose={() => setPaycheckVisible(false)}
       />
@@ -843,6 +865,12 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizeSM,
     fontFamily: theme.fontPrimary,
   },
+  splitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacingXS },
+  splitLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, flex: 1 },
+  splitInput: { backgroundColor: theme.backgroundCard, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, width: 90, textAlign: 'right' },
+  splitTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.borderColorDim, paddingTop: theme.spacingSM, marginTop: theme.spacingXS, marginBottom: theme.spacingMD },
+  splitTotalLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
+  splitTotalAmt: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
   postPaydayCard: {
     backgroundColor: theme.statusWarningBg,
     borderWidth: 1,
