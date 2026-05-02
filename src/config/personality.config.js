@@ -27,6 +27,13 @@ const personality = {
     floorNotBreached: 'Floor Maintained',
   },
 
+  postPaydayNudges: [
+    "Your Venmo is looking lonely.",
+    "Savings doesn't move itself.",
+    "Post-payday. You know what to do.",
+    "The accounts await your attention.",
+  ],
+
   badgeNames: {
     rolloverKing: 'Rollover King',
     groceryDiscipline: 'Grocery Discipline',

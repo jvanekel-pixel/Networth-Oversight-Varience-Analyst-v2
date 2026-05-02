@@ -81,7 +81,7 @@ export default function SettingsScreen() {
   const {
     incomeEvents, varianceConfig, updateConfig, recomputeVariance,
     recordPartnerDeposit, awardXP, rotateFlavorTextForEvent, resetStore,
-    updateVarianceConfig,
+    updateVarianceConfig, updateNovaConfig,
   } = useStore();
   const { exportAllData, importAllData, exportBusinessCsvs } = useExport();
 
@@ -107,6 +107,10 @@ export default function SettingsScreen() {
 
   // --- Export ---
   const [exportSchedule, setExportSchedule] = useState('off');
+
+  // --- Post-Payday Actions ---
+  const [ppdExpiryHours, setPpdExpiryHours] = useState('12');
+  const [ppdToggles, setPpdToggles] = useState({ venmo: true, savings: true });
 
   // --- Danger Zone ---
   const [resetInput, setResetInput] = useState('');
@@ -146,6 +150,13 @@ export default function SettingsScreen() {
     });
     AsyncStorage.getItem('nova_v2_notif_daily_time').then(raw => {
       if (raw) setDailyTime(JSON.parse(raw));
+    });
+    AsyncStorage.getItem('nova_v2_config').then(raw => {
+      if (raw) {
+        const cfg = JSON.parse(raw);
+        if (cfg.postPaydayExpiryHours != null) setPpdExpiryHours(String(cfg.postPaydayExpiryHours));
+        if (cfg.postPaydayActionToggles) setPpdToggles(cfg.postPaydayActionToggles);
+      }
     });
   }, []);
 
@@ -209,6 +220,17 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem('nova_v2_notif_daily_time', JSON.stringify(dailyTime));
   };
 
+  const handlePpdExpiryBlur = async () => {
+    const hours = parseFloat(ppdExpiryHours) || 12;
+    await updateNovaConfig({ postPaydayExpiryHours: hours });
+  };
+
+  const handlePpdToggle = async (key, val) => {
+    const updated = { ...ppdToggles, [key]: val };
+    setPpdToggles(updated);
+    await updateNovaConfig({ postPaydayActionToggles: updated });
+  };
+
   const handleSaveExportSchedule = async (val) => {
     setExportSchedule(val);
     const raw = await AsyncStorage.getItem('nova_v2_export_config');
@@ -252,6 +274,39 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.saveBtn} onPress={handleSavePaySchedule}>
           <Text style={styles.saveBtnText}>SAVE</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* 2b. POST-PAYDAY ACTIONS */}
+      <View style={styles.section}>
+        <SectionHeader title="POST-PAYDAY ACTIONS" />
+        <Text style={styles.label}>Action window (hours)</Text>
+        <TextInput
+          style={styles.input}
+          keyboardType="decimal-pad"
+          value={ppdExpiryHours}
+          onChangeText={setPpdExpiryHours}
+          onBlur={handlePpdExpiryBlur}
+          placeholder="12"
+          placeholderTextColor={theme.textDim}
+        />
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Remind me to move to Venmo</Text>
+          <Switch
+            value={ppdToggles.venmo !== false}
+            onValueChange={val => handlePpdToggle('venmo', val)}
+            trackColor={{ false: theme.borderColorDim, true: theme.accent }}
+            thumbColor={theme.background}
+          />
+        </View>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Remind me to move to Savings</Text>
+          <Switch
+            value={ppdToggles.savings !== false}
+            onValueChange={val => handlePpdToggle('savings', val)}
+            trackColor={{ false: theme.borderColorDim, true: theme.accent }}
+            thumbColor={theme.background}
+          />
+        </View>
       </View>
 
       {/* 3. PARTNER DEPOSIT */}

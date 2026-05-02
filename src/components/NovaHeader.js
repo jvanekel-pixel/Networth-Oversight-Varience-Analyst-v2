@@ -38,8 +38,14 @@ export { NovaFace };
 
 export default function NovaHeader() {
   const [now, setNow] = useState(new Date());
-  const { xpTotal, badges, currentFlavorText, lastActivityAt, confirmBalance, rotateFlavorText } = useStore();
+  const { xpTotal, badges, currentFlavorText, lastActivityAt, confirmBalance, rotateFlavorText, postPaydayActions } = useStore();
   const badgeCount = Object.keys(badges).length;
+
+  const novaIsAntsy = (postPaydayActions || []).some(a => !a.completed && Date.now() < a.expiresAt);
+  const personality = require('../config/personality.config').default;
+  const antsynudge = novaIsAntsy
+    ? personality.postPaydayNudges[Math.floor(Math.random() * personality.postPaydayNudges.length)]
+    : null;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -91,9 +97,12 @@ export default function NovaHeader() {
 
       <View style={styles.faceRow}>
         <NovaFace size={80} />
-        <Text style={styles.flavorText}>
-          {currentFlavorText || '...'}
-        </Text>
+        <View style={{ flex: 1, marginLeft: theme.spacingMD }}>
+          <Text style={styles.flavorText}>{currentFlavorText || '...'}</Text>
+          {antsynudge && (
+            <Text style={styles.antsynudge}>{antsynudge}</Text>
+          )}
+        </View>
       </View>
 
       <View style={styles.row}>
@@ -209,5 +218,12 @@ const styles = StyleSheet.create({
   },
   confirmTextGlow: {
     color: theme.accent,
+  },
+  antsynudge: {
+    color: theme.statusWarning,
+    fontSize: theme.fontSizeXS,
+    fontFamily: theme.fontPrimary,
+    fontStyle: 'italic',
+    marginTop: theme.spacingXS,
   },
 });

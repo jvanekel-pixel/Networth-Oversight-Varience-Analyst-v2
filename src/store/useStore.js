@@ -38,6 +38,8 @@ const KEYS = {
   CLEANING_MILEAGE: 'nova_v2_cleaningMileage',
   groceryStreakWeeks: 'nova_v2_grocery_streak_weeks',
   cleaningIncome: 'nova_v2_cleaning_income',
+  postPaydayActions: 'nova_v2_post_payday_actions',
+  novaConfig: 'nova_v2_config',
 };
 
 const initialState = {
@@ -87,6 +89,8 @@ const initialState = {
   },
   lastCycleResetMonth: null,
   groceryStreakWeeks: 0,
+  postPaydayActions: [],
+  novaConfig: { postPaydayExpiryHours: 12, postPaydayActionToggles: { venmo: true, savings: true } },
 };
 
 async function loadKey(key, fallback) {
@@ -147,6 +151,8 @@ const useStore = create((set, get) => ({
       groceryEntries,
       groceryStreakWeeks,
       cleaningIncome,
+      postPaydayActions,
+      novaConfig,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -176,6 +182,8 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.groceryEntries, initialState.groceryEntries),
       loadKey(KEYS.groceryStreakWeeks, initialState.groceryStreakWeeks),
       loadKey(KEYS.cleaningIncome, initialState.cleaningIncome),
+      loadKey(KEYS.postPaydayActions, initialState.postPaydayActions),
+      loadKey(KEYS.novaConfig, initialState.novaConfig),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -220,6 +228,8 @@ const useStore = create((set, get) => ({
       groceryEntries,
       groceryStreakWeeks,
       cleaningIncome,
+      postPaydayActions,
+      novaConfig: { ...initialState.novaConfig, ...novaConfig },
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -308,6 +318,14 @@ const useStore = create((set, get) => ({
     get().awardXP(10);
     get().checkAndAwardBadge('first_log');
     get().rotateFlavorTextForEvent('transaction');
+    // Auto-complete post-payday actions when matching transfer is logged
+    if (amt > 0) {
+      const openActions = (get().postPaydayActions || []).filter(a => !a.completed && Date.now() < a.expiresAt);
+      for (const action of openActions) {
+        if (action.type === 'venmo_move' && accountKey === 'venmo') get().completePostPaydayAction(action.id);
+        if (action.type === 'savings_move' && accountKey === 'entSavings') get().completePostPaydayAction(action.id);
+      }
+    }
     // Trigger significant-transaction auto-export
     if (Math.abs(amt) >= 10000) {
       AsyncStorage.getItem('nova_v2_export_config').then(raw => {
@@ -336,21 +354,10 @@ const useStore = create((set, get) => ({
     const gross = Math.floor(grossAmountCents);
     let accts = { ...accounts };
     const newTxs = [];
-    let awardRolloverXP = false;
     let idx = 0;
     const mkId = () => `${now}_${++idx}`;
 
-    // 1. Rollover sweep: move all entChecking → entSavings
-    const rolloverAmt = accts.entChecking || 0;
-    if (rolloverAmt > 0) {
-      awardRolloverXP = true;
-      accts.entChecking = 0;
-      accts.entSavings = (accts.entSavings || 0) + rolloverAmt;
-      newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: -rolloverAmt, category: 'Transfer', description: 'Rollover Sweep', timestamp: now });
-      newTxs.push({ id: mkId(), accountKey: 'entSavings', amountCents: rolloverAmt, category: 'Transfer', description: 'Rollover Sweep', timestamp: now });
-    }
-
-    // 2. Log gross paycheck as income to entChecking
+    // 1. Log gross paycheck as income to entChecking
     accts.entChecking = (accts.entChecking || 0) + gross;
     newTxs.push({ id: mkId(), accountKey: 'entChecking', amountCents: gross, category: 'Paycheck', description: 'Paycheck', timestamp: now });
 
@@ -394,10 +401,6 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.lastActivityAt, JSON.stringify(now)),
     ]);
 
-    if (awardRolloverXP) {
-      get().awardXP(50);
-      get().checkAndAwardBadge('rollover_king');
-    }
     get().checkAndAwardBadge('comma_club');
     // Savings milestone check after paycheck distribution
     const prevSavingsThousands = Math.floor((accounts.entSavings || 0) / 100000);
@@ -409,6 +412,7 @@ const useStore = create((set, get) => ({
     }
     get().rotateFlavorTextForEvent('rollover');
     get().recomputeVariance();
+    get().generatePostPaydayActions();
   },
 
   recordPartnerDeposit: async (amountCents) => {
@@ -1164,6 +1168,68 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
     get().recomputeVariance();
+  },
+
+  generatePostPaydayActions: async () => {
+    const { novaConfig } = get();
+    const now = Date.now();
+    const expiryMs = ((novaConfig?.postPaydayExpiryHours ?? 12) * 60 * 60 * 1000);
+    const toggles = novaConfig?.postPaydayActionToggles ?? { venmo: true, savings: true };
+    const actions = [];
+    if (toggles.venmo !== false) {
+      actions.push({
+        id: 'ppd_venmo_' + now,
+        type: 'venmo_move',
+        label: 'Move money to Venmo',
+        completed: false,
+        completedAt: null,
+        createdAt: now,
+        expiresAt: now + expiryMs,
+      });
+    }
+    if (toggles.savings !== false) {
+      actions.push({
+        id: 'ppd_savings_' + now,
+        type: 'savings_move',
+        label: 'Move money to Savings',
+        completed: false,
+        completedAt: null,
+        createdAt: now,
+        expiresAt: now + expiryMs,
+      });
+    }
+    set({ postPaydayActions: actions });
+    await AsyncStorage.setItem(KEYS.postPaydayActions, JSON.stringify(actions));
+  },
+
+  completePostPaydayAction: async (id) => {
+    const updated = get().postPaydayActions.map(a =>
+      a.id === id ? { ...a, completed: true, completedAt: Date.now() } : a
+    );
+    set({ postPaydayActions: updated });
+    await AsyncStorage.setItem(KEYS.postPaydayActions, JSON.stringify(updated));
+    get().awardXP(15);
+  },
+
+  dismissPostPaydayAction: async (id) => {
+    const updated = get().postPaydayActions.map(a =>
+      a.id === id ? { ...a, completed: true, completedAt: Date.now() } : a
+    );
+    set({ postPaydayActions: updated });
+    await AsyncStorage.setItem(KEYS.postPaydayActions, JSON.stringify(updated));
+  },
+
+  pruneExpiredPostPaydayActions: async () => {
+    const now = Date.now();
+    const filtered = get().postPaydayActions.filter(a => now <= a.expiresAt);
+    set({ postPaydayActions: filtered });
+    await AsyncStorage.setItem(KEYS.postPaydayActions, JSON.stringify(filtered));
+  },
+
+  updateNovaConfig: async (updates) => {
+    const merged = { ...get().novaConfig, ...updates };
+    set({ novaConfig: merged });
+    await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(merged));
   },
 }));
 

@@ -107,6 +107,7 @@ export default function PersonalScreen() {
     warnings,
     transactions,
     massageIncome,
+    postPaydayActions,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -118,6 +119,7 @@ export default function PersonalScreen() {
     deleteTransaction,
     editMassageIncome,
     deleteMassageIncome,
+    dismissPostPaydayAction,
     checkSpendingFloors,
   } = useStore();
   const personalVariance = useStore((s) => s.varianceCache.personal);
@@ -174,8 +176,26 @@ export default function PersonalScreen() {
 
   const { paycheckAmount = 0, nextPaycheckDate = null } = incomeEvents;
 
+  const now = Date.now();
+  const pendingActions = (postPaydayActions || []).filter(a => !a.completed && now < a.expiresAt);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+
+      {/* Post-Payday Actions */}
+      {pendingActions.length > 0 && (
+        <View style={styles.postPaydayCard}>
+          <Text style={styles.postPaydayHeader}>POST-PAYDAY ACTIONS</Text>
+          {pendingActions.map(action => (
+            <View key={action.id} style={styles.postPaydayRow}>
+              <Text style={styles.postPaydayLabel}>{action.label}</Text>
+              <TouchableOpacity style={styles.postPaydayBtn} onPress={() => dismissPostPaydayAction(action.id)}>
+                <Text style={styles.postPaydayBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* 1. Header strip */}
       <View style={styles.headerStrip}>
@@ -821,6 +841,49 @@ const styles = StyleSheet.create({
   varianceAnnotation: {
     color: theme.textSecondary,
     fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+  },
+  postPaydayCard: {
+    backgroundColor: theme.statusWarningBg,
+    borderWidth: 1,
+    borderColor: theme.statusWarning,
+    borderRadius: theme.borderRadiusMD,
+    padding: theme.spacingMD,
+    marginBottom: theme.spacingMD,
+  },
+  postPaydayHeader: {
+    color: theme.statusWarning,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: theme.spacingSM,
+  },
+  postPaydayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: theme.spacingXS,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,215,0,0.15)',
+  },
+  postPaydayLabel: {
+    color: theme.textPrimary,
+    fontSize: theme.fontSizeSM,
+    fontFamily: theme.fontPrimary,
+    flex: 1,
+  },
+  postPaydayBtn: {
+    borderWidth: 1,
+    borderColor: theme.statusWarning,
+    borderRadius: theme.borderRadiusSM,
+    paddingHorizontal: theme.spacingSM,
+    paddingVertical: theme.spacingXS,
+    marginLeft: theme.spacingSM,
+  },
+  postPaydayBtnText: {
+    color: theme.statusWarning,
+    fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
   },
 });

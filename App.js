@@ -240,6 +240,7 @@ export default function App() {
   const checkCycleReset = useStore((s) => s.checkCycleReset);
   const recomputeVariance = useStore((s) => s.recomputeVariance);
   const incomeEvents = useStore((s) => s.incomeEvents);
+  const pruneExpiredPostPaydayActions = useStore((s) => s.pruneExpiredPostPaydayActions);
   const { checkAndRunAutoExport } = useExport();
 
   useEffect(() => {
@@ -247,6 +248,7 @@ export default function App() {
       rotateFlavorText(personality.starterPool);
       checkCycleReset();
       recomputeVariance();
+      pruneExpiredPostPaydayActions();
       runAppOpenChecks(incomeEvents, checkAndRunAutoExport);
     });
   }, []);
@@ -255,11 +257,12 @@ export default function App() {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         checkCycleReset();
+        pruneExpiredPostPaydayActions();
         runAppOpenChecks(incomeEvents, checkAndRunAutoExport);
       }
     });
     return () => sub.remove();
-  }, [incomeEvents, checkAndRunAutoExport]);
+  }, [incomeEvents, checkAndRunAutoExport, pruneExpiredPostPaydayActions]);
 
   if (!onboardingComplete) {
     return <OnboardingScreen />;
