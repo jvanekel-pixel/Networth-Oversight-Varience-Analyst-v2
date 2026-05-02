@@ -1,21 +1,28 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, FlatList, TouchableOpacity, Alert, StyleSheet,
+  View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet,
 } from 'react-native';
 import useStore from '../store/useStore';
 import theme from '../config/theme.config';
 import { formatCentsShort } from '../utils/currency';
 import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
 import LogMassageExpenseModal from '../components/modals/LogMassageExpenseModal';
+import MassageRecentActivity from '../components/MassageRecentActivity';
 
 export default function MassageScreen({ navigation }) {
   const massageIncome = useStore((s) => s.massageIncome);
   const massageExpenses = useStore((s) => s.massageExpenses);
   const logMassageIncome = useStore((s) => s.logMassageIncome);
   const logMassageExpense = useStore((s) => s.logMassageExpense);
+  const editMassageIncome = useStore((s) => s.editMassageIncome);
+  const deleteMassageIncome = useStore((s) => s.deleteMassageIncome);
+  const editMassageExpense = useStore((s) => s.editMassageExpense);
+  const deleteMassageExpense = useStore((s) => s.deleteMassageExpense);
+
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [editingIncome, setEditingIncome] = useState(null);
+  const [editingExpense, setEditingExpense] = useState(null);
 
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -33,28 +40,60 @@ export default function MassageScreen({ navigation }) {
     .filter((r) => !r.deleted && new Date(r.date).getMonth() === currentMonth && new Date(r.date).getFullYear() === currentYear)
     .reduce((sum, r) => sum + (r.amountCents || 0), 0);
 
-  const sortedIncome = [...(massageIncome || [])]
-    .filter((r) => !r.deleted)
-    .sort((a, b) => b.date - a.date);
-
-  const sortedExpenses = [...(massageExpenses || [])]
-    .filter((r) => !r.deleted)
-    .sort((a, b) => b.date - a.date);
-
   const handleIncomeLongPress = (record) => {
-    Alert.alert('Income Record', '', [
-      { text: 'Edit', onPress: () => setSelectedRecord(record) },
-      { text: 'Delete', onPress: () => {} },
+    Alert.alert('Income Record', `${formatCentsShort(record.amountCents)} — ${record.paymentMethod}`, [
+      {
+        text: 'Edit',
+        onPress: () => { setEditingIncome(record); setShowIncomeModal(true); },
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Income?', 'This will reverse the balance from the destination account.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => deleteMassageIncome(record.id) },
+          ]);
+        },
+      },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
   const handleExpenseLongPress = (record) => {
-    Alert.alert('Expense Record', '', [
-      { text: 'Edit', onPress: () => setSelectedRecord(record) },
-      { text: 'Delete', onPress: () => {} },
+    Alert.alert('Expense Record', `${formatCentsShort(record.amountCents)} — ${record.category}`, [
+      {
+        text: 'Edit',
+        onPress: () => { setEditingExpense(record); setShowExpenseModal(true); },
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Expense?', 'Remove this expense record?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => deleteMassageExpense(record.id) },
+          ]);
+        },
+      },
       { text: 'Cancel', style: 'cancel' },
     ]);
+  };
+
+  const handleIncomeConfirm = (record) => {
+    if (editingIncome) {
+      editMassageIncome(editingIncome.id, record);
+    } else {
+      logMassageIncome(record);
+    }
+  };
+
+  const handleExpenseConfirm = (record) => {
+    if (editingExpense) {
+      editMassageExpense(editingExpense.id, record);
+    } else {
+      logMassageExpense(record);
+    }
   };
 
   return (
@@ -77,54 +116,32 @@ export default function MassageScreen({ navigation }) {
           </View>
         </View>
 
-        <Text style={styles.sectionHeader}>INCOME</Text>
-        <FlatList
-          data={sortedIncome}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.row} onLongPress={() => handleIncomeLongPress(item)}>
-              <Text style={styles.rowDate}>{new Date(item.date).toLocaleDateString()}</Text>
-              <Text style={[styles.rowAmount, { color: theme.statusPositive }]}>{formatCentsShort(item.amountCents)}</Text>
-              <Text style={styles.rowMeta}>{item.paymentMethod}</Text>
-              <Text style={styles.rowMeta}>{item.destinationAccount}</Text>
-            </TouchableOpacity>
-          )}
-          ListEmptyComponent={<Text style={styles.emptyText}>No income logged</Text>}
+        <MassageRecentActivity
+          incomeEntries={massageIncome}
+          expenseEntries={massageExpenses}
+          onLongPressIncome={handleIncomeLongPress}
+          onLongPressExpense={handleExpenseLongPress}
         />
 
-        <Text style={styles.sectionHeader}>EXPENSES</Text>
-        <FlatList
-          data={sortedExpenses}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.row} onLongPress={() => handleExpenseLongPress(item)}>
-              <Text style={styles.rowDate}>{new Date(item.date).toLocaleDateString()}</Text>
-              <Text style={[styles.rowAmount, { color: theme.statusDanger }]}>{formatCentsShort(item.amountCents)}</Text>
-              <Text style={styles.rowMeta}>{item.category}</Text>
-            </TouchableOpacity>
-          )}
-          ListEmptyComponent={<Text style={styles.emptyText}>No expenses logged</Text>}
-        />
-
-        <TouchableOpacity style={styles.button} onPress={() => setShowIncomeModal(true)}>
+        <TouchableOpacity style={[styles.button, { marginTop: 24 }]} onPress={() => { setEditingIncome(null); setShowIncomeModal(true); }}>
           <Text style={styles.buttonText}>LOG INCOME</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={() => setShowExpenseModal(true)}>
+        <TouchableOpacity style={styles.button} onPress={() => { setEditingExpense(null); setShowExpenseModal(true); }}>
           <Text style={styles.buttonText}>LOG EXPENSE</Text>
         </TouchableOpacity>
       </ScrollView>
 
       <LogMassageIncomeModal
         visible={showIncomeModal}
-        onClose={() => setShowIncomeModal(false)}
-        onConfirm={(record) => logMassageIncome(record)}
+        entry={editingIncome}
+        onClose={() => { setShowIncomeModal(false); setEditingIncome(null); }}
+        onConfirm={handleIncomeConfirm}
       />
       <LogMassageExpenseModal
         visible={showExpenseModal}
-        onClose={() => setShowExpenseModal(false)}
-        onConfirm={(record) => logMassageExpense(record)}
+        entry={editingExpense}
+        onClose={() => { setShowExpenseModal(false); setEditingExpense(null); }}
+        onConfirm={handleExpenseConfirm}
       />
     </View>
   );
@@ -161,27 +178,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     fontWeight: 'bold',
   },
-  sectionHeader: {
-    color: theme.textSecondary,
-    fontSize: theme.fontSizeSM,
-    fontFamily: theme.fontPrimary,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderColorDim,
-    gap: 12,
-  },
-  rowDate: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, flex: 1 },
-  rowAmount: { fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary, fontWeight: 'bold' },
-  rowMeta: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
-  emptyText: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginHorizontal: 16, marginBottom: 8 },
   button: {
     backgroundColor: theme.accent,
     paddingVertical: 14,

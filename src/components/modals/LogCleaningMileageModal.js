@@ -1,16 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet,
 } from 'react-native';
 import theme from '../../config/theme.config';
 
-export default function LogCleaningMileageModal({ visible, onClose, onConfirm, irsRateCents = 70 }) {
+export default function LogCleaningMileageModal({ visible, onClose, onConfirm, irsRateCents = 70, entry = null }) {
   const today = new Date();
   const [month, setMonth] = useState(String(today.getMonth() + 1));
   const [day, setDay] = useState(String(today.getDate()));
   const [year, setYear] = useState(String(today.getFullYear()));
   const [miles, setMiles] = useState('');
   const [purpose, setPurpose] = useState('');
+
+  useEffect(() => {
+    if (visible && entry) {
+      const d = new Date(entry.date);
+      setMonth(String(d.getMonth() + 1));
+      setDay(String(d.getDate()));
+      setYear(String(d.getFullYear()));
+      setMiles(entry.miles != null ? String(entry.miles) : '');
+      setPurpose(entry.purpose || '');
+    } else if (!visible) {
+      const t = new Date();
+      setMonth(String(t.getMonth() + 1));
+      setDay(String(t.getDate()));
+      setYear(String(t.getFullYear()));
+      setMiles('');
+      setPurpose('');
+    }
+  }, [visible, entry]);
 
   const milesFloat = parseFloat(miles) || 0;
   const deductionCents = Math.floor(milesFloat * irsRateCents);

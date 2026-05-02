@@ -37,11 +37,12 @@ const KEYS = {
   CLEANING_EXPENSES: 'nova_v2_cleaningExpenses',
   CLEANING_MILEAGE: 'nova_v2_cleaningMileage',
   groceryStreakWeeks: 'nova_v2_grocery_streak_weeks',
+  cleaningIncome: 'nova_v2_cleaning_income',
 };
 
 const initialState = {
   onboardingComplete: false,
-  accounts: { jointChecking: 0, entChecking: 0, entSavings: 0, venmo: 0, cash: 0 },
+  accounts: { jointChecking: 0, entChecking: 0, entSavings: 0, venmo: 0, cash: 0, cleaningChecking: 0 },
   accountFloors: { jointChecking: 30000, entChecking: 5000, others: 0 },
   householdBills: [],
   personalBills: [],
@@ -62,6 +63,7 @@ const initialState = {
   massageExpenses: [],
   cleaningExpenses: [],
   cleaningMileage: [],
+  cleaningIncome: [],
   irsRatePerMile: 70,
   xpTotal: 0,
   badges: {},
@@ -144,6 +146,7 @@ const useStore = create((set, get) => ({
       lastCycleResetMonth,
       groceryEntries,
       groceryStreakWeeks,
+      cleaningIncome,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -172,6 +175,7 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.LAST_CYCLE_RESET_MONTH, initialState.lastCycleResetMonth),
       loadKey(KEYS.groceryEntries, initialState.groceryEntries),
       loadKey(KEYS.groceryStreakWeeks, initialState.groceryStreakWeeks),
+      loadKey(KEYS.cleaningIncome, initialState.cleaningIncome),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -215,6 +219,7 @@ const useStore = create((set, get) => ({
       lastCycleResetMonth,
       groceryEntries,
       groceryStreakWeeks,
+      cleaningIncome,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -950,14 +955,27 @@ const useStore = create((set, get) => ({
     const id = 'massage_inc_' + Date.now();
     const newRecord = { ...record, id, createdAt: Date.now() };
     const updated = [...get().massageIncome, newRecord];
-    const { accounts } = get();
+    const { accounts, transactions } = get();
     const dest = record.destinationAccount || 'cash';
     const prevSavings = accounts.entSavings || 0;
     const updatedAccounts = { ...accounts, [dest]: (accounts[dest] || 0) + (record.amountCents || 0) };
-    set({ massageIncome: updated, accounts: updatedAccounts });
+    // Mirror transaction so it appears in Personal Recent Activity
+    const mirrorTx = {
+      id: 'massage_mirror_' + id,
+      accountKey: dest,
+      amountCents: record.amountCents || 0,
+      category: 'income',
+      description: 'Massage Income',
+      source: 'massage',
+      sourceId: id,
+      timestamp: record.date || Date.now(),
+    };
+    const updatedTransactions = [...transactions, mirrorTx];
+    set({ massageIncome: updated, accounts: updatedAccounts, transactions: updatedTransactions });
     await Promise.all([
       AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+      AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
     ]);
     get().awardXP(10);
     get().checkAndAwardBadge('massage_income');
@@ -979,7 +997,7 @@ const useStore = create((set, get) => ({
   editMassageIncome: async (id, updates) => {
     const existing = get().massageIncome.find(r => r.id === id && !r.deleted);
     if (!existing) return;
-    const { accounts } = get();
+    const { accounts, transactions } = get();
     let updatedAccounts = { ...accounts };
     // Reverse old credit
     const oldDest = existing.destinationAccount || 'cash';
@@ -989,10 +1007,17 @@ const useStore = create((set, get) => ({
     const newAmt = updates.amountCents !== undefined ? updates.amountCents : existing.amountCents;
     updatedAccounts[newDest] = (updatedAccounts[newDest] || 0) + newAmt;
     const updated = get().massageIncome.map(r => r.id === id ? { ...r, ...updates } : r);
-    set({ massageIncome: updated, accounts: updatedAccounts });
+    // Update mirror transaction
+    const updatedTransactions = transactions.map(t =>
+      t.sourceId === id && t.source === 'massage'
+        ? { ...t, accountKey: newDest, amountCents: newAmt, timestamp: updates.date || t.timestamp }
+        : t
+    );
+    set({ massageIncome: updated, accounts: updatedAccounts, transactions: updatedTransactions });
     await Promise.all([
       AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+      AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
     ]);
     get().recomputeVariance();
   },
@@ -1000,14 +1025,19 @@ const useStore = create((set, get) => ({
   deleteMassageIncome: async (id) => {
     const existing = get().massageIncome.find(r => r.id === id && !r.deleted);
     if (!existing) return;
-    const { accounts } = get();
+    const { accounts, transactions } = get();
     const dest = existing.destinationAccount || 'cash';
     const updatedAccounts = { ...accounts, [dest]: (accounts[dest] || 0) - existing.amountCents };
     const updated = get().massageIncome.map(r => r.id === id ? { ...r, deleted: true } : r);
-    set({ massageIncome: updated, accounts: updatedAccounts });
+    // Soft-delete mirror transaction (balance already reversed above)
+    const updatedTransactions = transactions.map(t =>
+      t.sourceId === id && t.source === 'massage' ? { ...t, deleted: true } : t
+    );
+    set({ massageIncome: updated, accounts: updatedAccounts, transactions: updatedTransactions });
     await Promise.all([
       AsyncStorage.setItem(KEYS.MASSAGE_INCOME, JSON.stringify(updated)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+      AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
     ]);
     get().recomputeVariance();
   },
@@ -1082,6 +1112,57 @@ const useStore = create((set, get) => ({
     const updated = get().cleaningMileage.map((r) => r.id === id ? { ...r, deleted: true } : r);
     set({ cleaningMileage: updated });
     await AsyncStorage.setItem(KEYS.CLEANING_MILEAGE, JSON.stringify(updated));
+    get().recomputeVariance();
+  },
+
+  logCleaningIncome: async (record) => {
+    const id = 'cleaning_inc_' + Date.now();
+    const newRecord = { ...record, id, createdAt: Date.now() };
+    const updated = [...get().cleaningIncome, newRecord];
+    const { accounts } = get();
+    const updatedAccounts = { ...accounts, cleaningChecking: (accounts.cleaningChecking || 0) + (record.amountCents || 0) };
+    set({ cleaningIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.cleaningIncome, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
+    get().awardXP(10);
+    get().recomputeVariance();
+  },
+
+  editCleaningIncome: async (id, updates) => {
+    const existing = get().cleaningIncome.find(r => r.id === id && !r.deleted);
+    if (!existing) return;
+    const { accounts } = get();
+    const oldAmt = existing.amountCents || 0;
+    const newAmt = updates.amountCents !== undefined ? updates.amountCents : oldAmt;
+    const updatedAccounts = {
+      ...accounts,
+      cleaningChecking: (accounts.cleaningChecking || 0) - oldAmt + newAmt,
+    };
+    const updated = get().cleaningIncome.map(r => r.id === id ? { ...r, ...updates } : r);
+    set({ cleaningIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.cleaningIncome, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
+    get().recomputeVariance();
+  },
+
+  deleteCleaningIncome: async (id) => {
+    const existing = get().cleaningIncome.find(r => r.id === id && !r.deleted);
+    if (!existing) return;
+    const { accounts } = get();
+    const updatedAccounts = {
+      ...accounts,
+      cleaningChecking: (accounts.cleaningChecking || 0) - (existing.amountCents || 0),
+    };
+    const updated = get().cleaningIncome.map(r => r.id === id ? { ...r, deleted: true } : r);
+    set({ cleaningIncome: updated, accounts: updatedAccounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.cleaningIncome, JSON.stringify(updated)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
+    ]);
     get().recomputeVariance();
   },
 }));

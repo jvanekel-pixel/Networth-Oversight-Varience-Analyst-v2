@@ -5,6 +5,7 @@ import useStore from '../store/useStore';
 import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '../utils/currency';
 import { formatDate, timeAgo } from '../utils/dates';
 import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
+import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
 
 const ACCOUNT_LABELS = {
   entChecking: 'ENT CHECKING',
@@ -105,6 +106,7 @@ export default function PersonalScreen() {
     billOverrides,
     warnings,
     transactions,
+    massageIncome,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -114,6 +116,8 @@ export default function PersonalScreen() {
     deleteBill,
     editTransaction,
     deleteTransaction,
+    editMassageIncome,
+    deleteMassageIncome,
     checkSpendingFloors,
   } = useStore();
   const personalVariance = useStore((s) => s.varianceCache.personal);
@@ -126,6 +130,7 @@ export default function PersonalScreen() {
   const [editingBill, setEditingBill] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
   const [activityMenuTx, setActivityMenuTx] = useState(null);
+  const [editingMassageIncome, setEditingMassageIncome] = useState(null);
 
   const handleDeleteBill = (billId) => {
     Alert.alert('Delete Subscription', 'Remove this recurring subscription?', [
@@ -276,23 +281,51 @@ export default function PersonalScreen() {
       <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setActivityMenuTx(null)}>
           <View style={styles.modalPanel}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
-              <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => {
-              const tx = activityMenuTx;
-              setActivityMenuTx(null);
-              Alert.alert(
-                'Delete Transaction',
-                'Delete this transaction? Account balance will be adjusted.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
-                ]
-              );
-            }}>
-              <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
-            </TouchableOpacity>
+            {activityMenuTx?.source === 'massage' ? (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {
+                  const sourceEntry = (massageIncome || []).find(r => r.id === activityMenuTx.sourceId && !r.deleted);
+                  setActivityMenuTx(null);
+                  if (sourceEntry) setEditingMassageIncome(sourceEntry);
+                }}>
+                  <Text style={styles.menuItemText}>EDIT MASSAGE INCOME</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {
+                  const sourceId = activityMenuTx.sourceId;
+                  setActivityMenuTx(null);
+                  Alert.alert(
+                    'Delete Massage Income?',
+                    'This will reverse the balance from the destination account.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteMassageIncome(sourceId) },
+                    ]
+                  );
+                }}>
+                  <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE MASSAGE INCOME</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
+                  <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {
+                  const tx = activityMenuTx;
+                  setActivityMenuTx(null);
+                  Alert.alert(
+                    'Delete Transaction',
+                    'Delete this transaction? Account balance will be adjusted.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+                    ]
+                  );
+                }}>
+                  <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -407,6 +440,12 @@ export default function PersonalScreen() {
         transaction={editingTx}
         onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
         onClose={() => setEditingTx(null)}
+      />
+      <LogMassageIncomeModal
+        visible={editingMassageIncome !== null}
+        entry={editingMassageIncome}
+        onClose={() => setEditingMassageIncome(null)}
+        onConfirm={(record) => { if (editingMassageIncome) { editMassageIncome(editingMassageIncome.id, record); setEditingMassageIncome(null); } }}
       />
     </ScrollView>
   );

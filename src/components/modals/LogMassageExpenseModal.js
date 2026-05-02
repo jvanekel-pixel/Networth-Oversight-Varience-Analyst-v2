@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, Alert, ScrollView, StyleSheet,
 } from 'react-native';
@@ -7,7 +7,7 @@ import { parseBillInput } from '../../utils/currency';
 
 const CATEGORIES = ['platform_fee', 'supplies', 'marketing', 'equipment', 'other'];
 
-export default function LogMassageExpenseModal({ visible, onClose, onConfirm }) {
+export default function LogMassageExpenseModal({ visible, onClose, onConfirm, entry = null }) {
   const today = new Date();
   const [month, setMonth] = useState(String(today.getMonth() + 1));
   const [day, setDay] = useState(String(today.getDate()));
@@ -16,6 +16,28 @@ export default function LogMassageExpenseModal({ visible, onClose, onConfirm }) 
   const [category, setCategory] = useState('supplies');
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (visible && entry) {
+      const d = new Date(entry.date);
+      setMonth(String(d.getMonth() + 1));
+      setDay(String(d.getDate()));
+      setYear(String(d.getFullYear()));
+      setAmount(entry.amountCents ? (entry.amountCents / 100).toFixed(2) : '');
+      setCategory(entry.category || 'supplies');
+      setDescription(entry.description || '');
+      setNotes(entry.notes || '');
+    } else if (!visible) {
+      const t = new Date();
+      setMonth(String(t.getMonth() + 1));
+      setDay(String(t.getDate()));
+      setYear(String(t.getFullYear()));
+      setAmount('');
+      setCategory('supplies');
+      setDescription('');
+      setNotes('');
+    }
+  }, [visible, entry]);
 
   const handleConfirm = () => {
     if (!month || !day || !year || !amount) {

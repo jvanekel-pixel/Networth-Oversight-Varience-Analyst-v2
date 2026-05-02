@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Modal, View, Text, TextInput, TouchableOpacity, Alert, ScrollView, Switch, StyleSheet,
-} from 'react-native';
+import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import theme from '../../config/theme.config';
 import { parseBillInput } from '../../utils/currency';
 
-const CATEGORIES = ['formation_legal', 'equipment', 'supplies', 'marketing', 'software_tools', 'meals_entertainment', 'other'];
+const PAYMENT_METHODS = ['Cash', 'Check', 'Venmo', 'Zelle'];
 
-export default function LogCleaningExpenseModal({ visible, onClose, onConfirm, entry = null }) {
+export default function LogCleaningIncomeModal({ visible, onClose, onConfirm, entry = null }) {
   const today = new Date();
   const [month, setMonth] = useState(String(today.getMonth() + 1));
   const [day, setDay] = useState(String(today.getDate()));
   const [year, setYear] = useState(String(today.getFullYear()));
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('supplies');
-  const [description, setDescription] = useState('');
-  const [taxDeductible, setTaxDeductible] = useState(true);
-  const [receiptNote, setReceiptNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (visible && entry) {
@@ -25,20 +21,16 @@ export default function LogCleaningExpenseModal({ visible, onClose, onConfirm, e
       setDay(String(d.getDate()));
       setYear(String(d.getFullYear()));
       setAmount(entry.amountCents ? (entry.amountCents / 100).toFixed(2) : '');
-      setCategory(entry.category || 'supplies');
-      setDescription(entry.description || '');
-      setTaxDeductible(entry.taxDeductible !== undefined ? entry.taxDeductible : true);
-      setReceiptNote(entry.receiptNote || '');
+      setPaymentMethod(entry.paymentMethod || 'Cash');
+      setNotes(entry.notes || '');
     } else if (!visible) {
       const t = new Date();
       setMonth(String(t.getMonth() + 1));
       setDay(String(t.getDate()));
       setYear(String(t.getFullYear()));
       setAmount('');
-      setCategory('supplies');
-      setDescription('');
-      setTaxDeductible(true);
-      setReceiptNote('');
+      setPaymentMethod('Cash');
+      setNotes('');
     }
   }, [visible, entry]);
 
@@ -48,7 +40,9 @@ export default function LogCleaningExpenseModal({ visible, onClose, onConfirm, e
       return;
     }
     const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).getTime();
-    onConfirm({ date, amountCents: parseBillInput(amount), category, description, taxDeductible, receiptNote });
+    onConfirm({ date, amountCents: parseBillInput(amount), paymentMethod, notes });
+    setAmount('');
+    setNotes('');
     onClose();
   };
 
@@ -56,7 +50,7 @@ export default function LogCleaningExpenseModal({ visible, onClose, onConfirm, e
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
-          <Text style={styles.title}>LOG EXPENSE</Text>
+          <Text style={styles.title}>LOG INCOME</Text>
           <Text style={styles.subtitle}>Cleaning LLC</Text>
 
           <Text style={styles.label}>Date</Text>
@@ -69,29 +63,17 @@ export default function LogCleaningExpenseModal({ visible, onClose, onConfirm, e
           <Text style={styles.label}>Amount</Text>
           <TextInput style={styles.input} placeholder="0.00" placeholderTextColor={theme.textDim} keyboardType="decimal-pad" value={amount} onChangeText={setAmount} />
 
-          <Text style={styles.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillScroll}>
-            {CATEGORIES.map((cat) => (
-              <TouchableOpacity key={cat} style={[styles.pill, category === cat && styles.pillActive]} onPress={() => setCategory(cat)}>
-                <Text style={[styles.pillText, category === cat && styles.pillTextActive]}>{cat}</Text>
+          <Text style={styles.label}>Payment Method</Text>
+          <View style={styles.pillRow}>
+            {PAYMENT_METHODS.map(m => (
+              <TouchableOpacity key={m} style={[styles.pill, paymentMethod === m && styles.pillActive]} onPress={() => setPaymentMethod(m)}>
+                <Text style={[styles.pillText, paymentMethod === m && styles.pillTextActive]}>{m}</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
-
-          <Text style={styles.label}>Description</Text>
-          <TextInput style={styles.input} placeholder="Description" placeholderTextColor={theme.textDim} value={description} onChangeText={setDescription} />
-
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Tax Deductible</Text>
-            <Switch
-              value={taxDeductible}
-              onValueChange={setTaxDeductible}
-              trackColor={{ false: theme.borderColorDim, true: theme.accent }}
-            />
           </View>
 
-          <Text style={styles.label}>Receipt Note</Text>
-          <TextInput style={styles.input} placeholder="Receipt note (optional)" placeholderTextColor={theme.textDim} value={receiptNote} onChangeText={setReceiptNote} />
+          <Text style={styles.label}>Notes</Text>
+          <TextInput style={styles.input} placeholder="Notes (optional)" placeholderTextColor={theme.textDim} value={notes} onChangeText={setNotes} />
 
           <View style={styles.buttonRow}>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
@@ -117,13 +99,11 @@ const styles = StyleSheet.create({
   dateRow: { flexDirection: 'row', gap: 8 },
   dateInput: { flex: 1, textAlign: 'center' },
   dateInputYear: { flex: 2, textAlign: 'center' },
-  pillScroll: { marginVertical: 4 },
-  pill: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 16, marginRight: 8 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 },
   pillActive: { backgroundColor: theme.accent, borderColor: theme.accent },
   pillText: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
   pillTextActive: { color: theme.background, fontWeight: 'bold' },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
-  switchLabel: { color: theme.textPrimary, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary },
   buttonRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
   cancelBtn: { flex: 1, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: 8, paddingVertical: 12, alignItems: 'center' },
   cancelText: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD },

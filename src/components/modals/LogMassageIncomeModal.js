@@ -5,7 +5,7 @@ import {
 import theme from '../../config/theme.config';
 import { parseBillInput } from '../../utils/currency';
 
-export default function LogMassageIncomeModal({ visible, onClose, onConfirm }) {
+export default function LogMassageIncomeModal({ visible, onClose, onConfirm, entry = null }) {
   const today = new Date();
   const [month, setMonth] = useState(String(today.getMonth() + 1));
   const [day, setDay] = useState(String(today.getDate()));
@@ -14,6 +14,28 @@ export default function LogMassageIncomeModal({ visible, onClose, onConfirm }) {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [destinationAccount, setDestinationAccount] = useState('cash');
   const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (visible && entry) {
+      const d = new Date(entry.date);
+      setMonth(String(d.getMonth() + 1));
+      setDay(String(d.getDate()));
+      setYear(String(d.getFullYear()));
+      setAmount(entry.amountCents ? (entry.amountCents / 100).toFixed(2) : '');
+      setPaymentMethod(entry.paymentMethod || 'cash');
+      setDestinationAccount(entry.destinationAccount || 'cash');
+      setNotes(entry.notes || '');
+    } else if (!visible) {
+      const t = new Date();
+      setMonth(String(t.getMonth() + 1));
+      setDay(String(t.getDate()));
+      setYear(String(t.getFullYear()));
+      setAmount('');
+      setPaymentMethod('cash');
+      setDestinationAccount('cash');
+      setNotes('');
+    }
+  }, [visible, entry]);
 
   useEffect(() => {
     if (paymentMethod === 'venmo') setDestinationAccount('entChecking');
