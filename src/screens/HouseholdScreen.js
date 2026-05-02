@@ -227,6 +227,17 @@ export default function HouseholdScreen() {
     checkSpendingFloors();
   };
 
+  if (userMode && userMode !== 'partnered') {
+    return (
+      <View style={[styles.container, { padding: theme.spacingMD }]}>
+        <View style={styles.card}>
+          <Text style={[styles.cardLabel, { textAlign: 'center', marginBottom: theme.spacingSM }]}>HOUSEHOLD TRACKING UNAVAILABLE</Text>
+          <Text style={[styles.metaText, { textAlign: 'center' }]}>Household tracking is for partnered mode. Enable it in Settings → Profile.</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 

@@ -53,8 +53,9 @@ export default function DashboardScreen({ navigation }) {
   const confirmBalance = useStore((s) => s.confirmBalance);
   const accountRegistry = useStore((s) => s.accountRegistry);
   const entrepreneurMode = useStore((s) => s.novaConfig?.entrepreneurMode);
+  const userMode = useStore((s) => s.novaConfig?.userMode);
 
-  const showHousehold = accountRegistry.length === 0 || accountRegistry.some(a => a.isActive !== false && a.role === 'household');
+  const showHousehold = userMode === 'partnered' && (accountRegistry || []).some(a => a.isActive !== false && a.role === 'household');
   const showBusiness = entrepreneurMode !== false;
 
   const now = new Date();
