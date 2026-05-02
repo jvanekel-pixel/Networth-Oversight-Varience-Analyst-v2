@@ -48,7 +48,11 @@ export default function OnboardingIncomeScreen({ navigation }) {
       nextPaycheckDate: parseDateInput(paydayDate),
     };
     updateWizard({ incomeConfig: config });
-    navigation.navigate('OnboardingBills');
+    if (incomeType === 'predictable') {
+      navigation.navigate('OnboardingPaycheckSplit');
+    } else {
+      navigation.navigate('OnboardingBills');
+    }
   }
 
   function handleSkip() {

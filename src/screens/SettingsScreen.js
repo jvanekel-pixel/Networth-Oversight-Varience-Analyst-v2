@@ -17,6 +17,7 @@ import SpendingBucketsSection from '../components/settings/SpendingBucketsSectio
 import SavingsGoalSection from '../components/settings/SavingsGoalSection';
 import EntrepreneurModeSection from '../components/settings/EntrepreneurModeSection';
 import PartnerDepositSection from '../components/settings/PartnerDepositSection';
+import PaycheckSplitSheet from '../components/settings/PaycheckSplitSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FREQ_OPTIONS = [
@@ -104,16 +105,6 @@ export default function SettingsScreen() {
   // --- Export ---
   const [exportSchedule, setExportSchedule] = useState('off');
 
-  // --- Paycheck Splits ---
-  const DEFAULT_SPLITS = [
-    { id: '1', accountKey: 'jointChecking', label: 'Joint Checking', amountCents: 99000 },
-    { id: '2', accountKey: 'entSavings',    label: 'ENT Savings',    amountCents: 5000  },
-    { id: '3', accountKey: 'entChecking',   label: 'ENT Checking',   amountCents: 31300 },
-  ];
-  const [splitRaws, setSplitRaws] = useState(
-    DEFAULT_SPLITS.map(s => (s.amountCents / 100).toFixed(2))
-  );
-
   // --- Payday Reminder ---
   const [paydayReminderEnabled, setPaydayReminderEnabled] = useState(
     notificationsConfig.paydayReminder.enabled ?? true
@@ -127,9 +118,6 @@ export default function SettingsScreen() {
   const [resetInput, setResetInput] = useState('');
 
   useEffect(() => {
-    if (novaConfig?.paycheckSplits?.length) {
-      setSplitRaws(novaConfig.paycheckSplits.map(s => (s.amountCents / 100).toFixed(2)));
-    }
     if (novaConfig?.paydayReminderEnabled !== undefined) {
       setPaydayReminderEnabled(novaConfig.paydayReminderEnabled);
     }
@@ -224,13 +212,6 @@ export default function SettingsScreen() {
     await updateNovaConfig({ paydayReminderEnabled: val });
   };
 
-  const handleSplitBlur = async (idx, raw) => {
-    const cents = parseBillInput(raw) || 0;
-    const baseSplits = novaConfig?.paycheckSplits || DEFAULT_SPLITS;
-    const splits = baseSplits.map((s, i) => i === idx ? { ...s, amountCents: cents } : s);
-    await updateNovaConfig({ paycheckSplits: splits });
-  };
-
   const handleSaveExportSchedule = async (val) => {
     setExportSchedule(val);
     const raw = await AsyncStorage.getItem('nova_v2_export_config');
@@ -310,33 +291,7 @@ export default function SettingsScreen() {
       {/* 2a. PAYCHECK SPLIT */}
       <View style={styles.section}>
         <SectionHeader title="PAYCHECK SPLIT" />
-        {(novaConfig?.paycheckSplits || DEFAULT_SPLITS).map((split, idx) => (
-          <View key={split.id} style={styles.splitRow}>
-            <Text style={styles.splitLabel}>{split.label}</Text>
-            <TextInput
-              style={styles.splitInput}
-              keyboardType="decimal-pad"
-              value={splitRaws[idx] ?? ''}
-              onChangeText={raw => {
-                const updated = [...splitRaws];
-                updated[idx] = raw;
-                setSplitRaws(updated);
-              }}
-              onBlur={() => handleSplitBlur(idx, splitRaws[idx])}
-              placeholderTextColor={theme.textDim}
-              placeholder="0.00"
-            />
-          </View>
-        ))}
-        {(() => {
-          const totalCents = splitRaws.reduce((sum, r) => sum + (parseBillInput(r) || 0), 0);
-          return (
-            <View style={styles.splitTotalRow}>
-              <Text style={styles.splitTotalLabel}>Total splits</Text>
-              <Text style={styles.splitTotalAmt}>{formatCentsShort(totalCents)}</Text>
-            </View>
-          );
-        })()}
+        <PaycheckSplitSheet />
       </View>
 
       {/* 2b. POST-PAYDAY ACTIONS */}

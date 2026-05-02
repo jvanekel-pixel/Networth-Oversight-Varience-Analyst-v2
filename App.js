@@ -30,6 +30,7 @@ import OnboardingBillsScreen from './src/screens/onboarding/OnboardingBillsScree
 import OnboardingBucketsScreen from './src/screens/onboarding/OnboardingBucketsScreen';
 import OnboardingSavingsGoalScreen from './src/screens/onboarding/OnboardingSavingsGoalScreen';
 import OnboardingEntrepreneurScreen from './src/screens/onboarding/OnboardingEntrepreneurScreen';
+import OnboardingPaycheckSplitScreen from './src/screens/onboarding/OnboardingPaycheckSplitScreen';
 import OnboardingReviewScreen from './src/screens/onboarding/OnboardingReviewScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import HouseholdScreen from './src/screens/HouseholdScreen';
@@ -273,6 +274,7 @@ function OnboardingNav() {
           <OnboardingStack.Screen name="OnboardingUserMode" component={OnboardingUserModeScreen} />
           <OnboardingStack.Screen name="OnboardingAccounts" component={OnboardingAccountsScreen} />
           <OnboardingStack.Screen name="OnboardingIncome" component={OnboardingIncomeScreen} />
+          <OnboardingStack.Screen name="OnboardingPaycheckSplit" component={OnboardingPaycheckSplitScreen} />
           <OnboardingStack.Screen name="OnboardingBills" component={OnboardingBillsScreen} />
           <OnboardingStack.Screen name="OnboardingBuckets" component={OnboardingBucketsScreen} />
           <OnboardingStack.Screen name="OnboardingSavingsGoal" component={OnboardingSavingsGoalScreen} />

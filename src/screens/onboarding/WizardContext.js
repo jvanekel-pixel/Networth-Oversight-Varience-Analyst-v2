@@ -16,6 +16,7 @@ const initialWizardState = {
   buckets: [],
   savingsGoal: null,
   wizardBusinesses: [],
+  paycheckSplits: [],
 };
 
 export function WizardProvider({ children }) {

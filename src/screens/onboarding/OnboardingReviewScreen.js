@@ -39,7 +39,7 @@ export default function OnboardingReviewScreen({ navigation }) {
 
   const {
     userMode, entrepreneurMode, wizardAccounts, incomeConfig,
-    bills, buckets, savingsGoal, wizardBusinesses,
+    bills, buckets, savingsGoal, wizardBusinesses, paycheckSplits,
   } = wizardState;
 
   async function handleFinish() {
@@ -54,7 +54,7 @@ export default function OnboardingReviewScreen({ navigation }) {
         buckets,
         incomeConfig,
         savingsGoal,
-        paycheckSplits: [],
+        paycheckSplits: paycheckSplits || [],
       });
     } catch (e) {
       console.warn('completeOnboarding error:', e);
