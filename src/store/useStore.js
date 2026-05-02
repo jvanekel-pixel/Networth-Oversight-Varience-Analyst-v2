@@ -97,11 +97,7 @@ const initialState = {
   novaConfig: {
     postPaydayExpiryHours: 12,
     postPaydayActionToggles: { venmo: true, savings: true },
-    paycheckSplits: [
-      { id: '1', accountKey: 'jointChecking', label: 'Joint Checking', amountCents: 99000 },
-      { id: '2', accountKey: 'entSavings',    label: 'ENT Savings',    amountCents: 5000  },
-      { id: '3', accountKey: 'entChecking',   label: 'ENT Checking',   amountCents: 31300 },
-    ],
+    paycheckSplits: [],
     onboardingComplete: false,
     userMode: null,
     entrepreneurMode: false,
@@ -1435,7 +1431,7 @@ const useStore = create((set, get) => ({
       onboardingComplete: true,
       userMode,
       entrepreneurMode,
-      paycheckSplits: paycheckSplits.length > 0 ? paycheckSplits : get().novaConfig.paycheckSplits,
+      paycheckSplits: paycheckSplits,
     };
 
     const finalHouseholdBills = [...get().householdBills, ...newHouseholdBills];

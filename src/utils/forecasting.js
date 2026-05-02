@@ -42,7 +42,7 @@ export const getBillEventsBetween = (bills, startMs, endMs) => {
     if (bill.isActive === false) continue;
 
     const day = bill.expectedDay || bill.dueDay || 1;
-    const accountKey = bill.defaultAccountKey || 'jointChecking';
+    const accountKey = bill.defaultAccountKey || null;
 
     let y = startYear;
     let m = startMonth;
@@ -86,16 +86,8 @@ function subtractPayFrequency(cursorMs, payFrequency) {
   return cursorMs - 14 * 24 * 60 * 60 * 1000;
 }
 
-const PROFILE_ACCOUNTS_FALLBACK = {
-  household: ['jointChecking'],
-  personal: ['entChecking', 'entSavings', 'venmo', 'cash'],
-  business: [],
-};
-
 export function getProfileAccounts(profile, accountRegistry = []) {
-  if (!accountRegistry || accountRegistry.length === 0) {
-    return PROFILE_ACCOUNTS_FALLBACK[profile] || [];
-  }
+  if (!accountRegistry || accountRegistry.length === 0) return [];
   return accountRegistry
     .filter(a => a.isActive !== false && a.role === profile)
     .map(a => a.legacyKey || a.id);
@@ -118,8 +110,8 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs, accountRegi
   const partnerDepositSchedule = incomeEvents.partnerDepositSchedule ?? 'last_day';
   const partnerDepositLastReceivedMonth = incomeEvents.partnerDepositLastReceivedMonth;
 
-  const paycheckAccountKey = getAccountKeyByRole('personal', accountRegistry, 'entChecking');
-  const partnerDepositAccountKey = getAccountKeyByRole('household', accountRegistry, 'jointChecking');
+  const paycheckAccountKey = getAccountKeyByRole('personal', accountRegistry, null);
+  const partnerDepositAccountKey = getAccountKeyByRole('household', accountRegistry, null);
 
   // Operator paycheck — forward walk using configured pay frequency
   if (nextPaycheckDate != null && paycheckAmountCents > 0 && payFrequency !== 'unscheduled') {
@@ -181,7 +173,7 @@ export const projectBalance = ({
   bills,
   incomeEvents,
   groceryWeeklyLimit = 0,
-  groceryAccountKey = 'jointChecking',
+  groceryAccountKey = null,
   accountRegistry = [],
   userMode = null,
 }) => {
@@ -338,7 +330,7 @@ export const computeProfileVariance = ({
   const remainingBills = allBills
     .filter(b => {
       if (b.isActive === false) return false;
-      if (!profileAccounts.includes(b.defaultAccountKey || 'jointChecking')) return false;
+      if (!b.defaultAccountKey || !profileAccounts.includes(b.defaultAccountKey)) return false;
       if (b.lastPaidMonth === cycleId) return false;
       return true;
     })

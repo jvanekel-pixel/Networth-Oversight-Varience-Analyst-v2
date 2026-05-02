@@ -28,7 +28,10 @@ export default function CalendarScreen({ navigation }) {
   const [editingBill, setEditingBill] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
 
-  const { accounts, accountFloors, householdBills, personalBills, incomeEvents, transactions, editBill, deleteBill, editTransaction } = useStore();
+  const { accounts, accountFloors, householdBills, personalBills, incomeEvents, transactions, editBill, deleteBill, editTransaction, accountRegistry, novaConfig } = useStore();
+  const userMode = novaConfig?.userMode ?? null;
+  const householdAccount = (accountRegistry || []).find(a => a.isActive !== false && a.role === 'household');
+  const householdAccountKey = householdAccount ? (householdAccount.legacyKey || householdAccount.id) : null;
   const allBills = useMemo(() => [...(householdBills || []), ...(personalBills || [])], [householdBills, personalBills]);
 
   const monthStart = new Date(viewYear, viewMonth, 1);
@@ -37,28 +40,31 @@ export default function CalendarScreen({ navigation }) {
   const endMs = monthEnd.getTime();
 
   const billEvents = useMemo(() => getBillEventsBetween(allBills, startMs, endMs), [allBills, startMs, endMs]);
-  const incomeEvts = useMemo(() => getIncomeEventsBetween(incomeEvents, startMs, endMs), [incomeEvents, startMs, endMs]);
+  const incomeEvts = useMemo(() => getIncomeEventsBetween(incomeEvents, startMs, endMs, accountRegistry, userMode), [incomeEvents, startMs, endMs, accountRegistry, userMode]);
 
   const monthTx = useMemo(() => (transactions || []).filter(t => !t.deleted && t.timestamp >= startMs && t.timestamp <= endMs), [transactions, startMs, endMs]);
 
   // Compute which bill-event days need red background (low balance projection)
-  const jointFloor = accountFloors?.jointChecking ?? 0;
+  const householdFloor = householdAccountKey ? (accountFloors?.[householdAccountKey] ?? 0) : 0;
   const redDays = useMemo(() => {
     const days = new Set();
+    if (!householdAccountKey) return days;
     for (const evt of billEvents) {
-      if (evt.accountKey === 'jointChecking') {
+      if (evt.accountKey === householdAccountKey) {
         const { projectedBalance } = projectBalance({
-          currentBalance: accounts.jointChecking || 0,
-          accountKey: 'jointChecking',
+          currentBalance: accounts[householdAccountKey] || 0,
+          accountKey: householdAccountKey,
           targetDateMs: evt.dateMs,
           bills: allBills,
           incomeEvents,
+          accountRegistry,
+          userMode,
         });
-        if (projectedBalance < jointFloor) days.add(evt.dateMs);
+        if (projectedBalance < householdFloor) days.add(evt.dateMs);
       }
     }
     return days;
-  }, [billEvents, accounts, allBills, incomeEvents, jointFloor]);
+  }, [billEvents, accounts, allBills, incomeEvents, householdFloor, householdAccountKey, accountRegistry, userMode]);
 
   // Build grid cells
   const firstDow = monthStart.getDay();
