@@ -1,3 +1,10 @@
+export const PAYDAY_AMOUNTS = {
+  jointDeposit: 990,
+  savingsDeposit: 50,
+  entDeposit: 313,
+  venmoMove: 150,
+};
+
 const personality = {
   characterName: 'N.O.V.A.',
   characterFullName: 'Net Worth Oversight Variance Analyst',

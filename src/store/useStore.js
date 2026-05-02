@@ -40,6 +40,7 @@ const KEYS = {
   cleaningIncome: 'nova_v2_cleaning_income',
   postPaydayActions: 'nova_v2_post_payday_actions',
   novaConfig: 'nova_v2_config',
+  groceryDisciplineStreak: 'nova_v2_grocery_discipline_streak',
 };
 
 const initialState = {
@@ -91,6 +92,7 @@ const initialState = {
   groceryStreakWeeks: 0,
   postPaydayActions: [],
   novaConfig: { postPaydayExpiryHours: 12, postPaydayActionToggles: { venmo: true, savings: true } },
+  groceryDisciplineStreak: 0,
 };
 
 async function loadKey(key, fallback) {
@@ -153,6 +155,7 @@ const useStore = create((set, get) => ({
       cleaningIncome,
       postPaydayActions,
       novaConfig,
+      groceryDisciplineStreak,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -184,6 +187,7 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.cleaningIncome, initialState.cleaningIncome),
       loadKey(KEYS.postPaydayActions, initialState.postPaydayActions),
       loadKey(KEYS.novaConfig, initialState.novaConfig),
+      loadKey(KEYS.groceryDisciplineStreak, initialState.groceryDisciplineStreak),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -230,6 +234,7 @@ const useStore = create((set, get) => ({
       cleaningIncome,
       postPaydayActions,
       novaConfig: { ...initialState.novaConfig, ...novaConfig },
+      groceryDisciplineStreak,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -881,14 +886,17 @@ const useStore = create((set, get) => ({
 
       // Grocery streak: check if closing week was under limit
       let newStreakWeeks = groceryStreakWeeks;
+      let newDisciplineStreak = get().groceryDisciplineStreak || 0;
       if (groceryBudget?.weeklyLimit > 0) {
         if ((groceryBudget.currentWeekSpend || 0) <= groceryBudget.weeklyLimit) {
           newStreakWeeks += 1;
+          newDisciplineStreak += 1;
         } else {
           newStreakWeeks = 0;
+          newDisciplineStreak = 0;
         }
       }
-      if (newStreakWeeks >= 4) {
+      if (newDisciplineStreak >= 4) {
         get().checkAndAwardBadge('grocery_discipline');
       }
 
@@ -903,10 +911,11 @@ const useStore = create((set, get) => ({
         }
       }
 
-      set({ lastCycleResetMonth: currentCycleId, groceryStreakWeeks: newStreakWeeks });
+      set({ lastCycleResetMonth: currentCycleId, groceryStreakWeeks: newStreakWeeks, groceryDisciplineStreak: newDisciplineStreak });
       await Promise.all([
         AsyncStorage.setItem(KEYS.LAST_CYCLE_RESET_MONTH, JSON.stringify(currentCycleId)),
         AsyncStorage.setItem(KEYS.groceryStreakWeeks, JSON.stringify(newStreakWeeks)),
+        AsyncStorage.setItem(KEYS.groceryDisciplineStreak, JSON.stringify(newDisciplineStreak)),
       ]);
       get().recomputeVariance();
       get().rotateFlavorTextForEvent('cycle_reset');
@@ -931,6 +940,8 @@ const useStore = create((set, get) => ({
     if (key === 'llc_launched') earned = (cleaningExpenses || []).filter(r => !r.deleted).length >= 1;
     if (key === 'massage_income') earned = (massageIncome || []).filter(r => !r.deleted).length >= 1;
     if (key === 'comma_club') earned = (accounts.entSavings || 0) >= 100000;
+    if (key === 'grocery_discipline') earned = true; // only called when discipline streak threshold met
+    if (key === 'cycle_complete') earned = true; // only called when all bills confirmed paid
 
     if (earned) {
       const newBadges = { ...badges, [key]: Date.now() };
