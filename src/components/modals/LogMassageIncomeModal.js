@@ -4,16 +4,38 @@ import {
 } from 'react-native';
 import theme from '../../config/theme.config';
 import { parseBillInput } from '../../utils/currency';
+import useStore from '../../store/useStore';
+import AccountPickerSheet from '../AccountPickerSheet';
 
 export default function LogMassageIncomeModal({ visible, onClose, onConfirm, entry = null }) {
+  const accountRegistry = useStore((s) => s.accountRegistry);
+
   const today = new Date();
   const [month, setMonth] = useState(String(today.getMonth() + 1));
   const [day, setDay] = useState(String(today.getDate()));
   const [year, setYear] = useState(String(today.getFullYear()));
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [destinationAccount, setDestinationAccount] = useState('cash');
+  const [destinationAccount, setDestinationAccount] = useState(null);
   const [notes, setNotes] = useState('');
+
+  const personalAccounts = (accountRegistry || []).filter(
+    a => a.isActive !== false && a.role === 'personal'
+  );
+
+  const firstCheckingKey = (() => {
+    const acct = personalAccounts.find(a => a.type === 'checking');
+    return acct ? (acct.legacyKey || acct.id) : null;
+  })();
+
+  const firstCashKey = (() => {
+    const acct = personalAccounts.find(a => a.type === 'cash');
+    return acct ? (acct.legacyKey || acct.id) : null;
+  })();
+
+  const firstPersonalKey = personalAccounts.length > 0
+    ? (personalAccounts[0].legacyKey || personalAccounts[0].id)
+    : null;
 
   useEffect(() => {
     if (visible && entry) {
@@ -23,7 +45,7 @@ export default function LogMassageIncomeModal({ visible, onClose, onConfirm, ent
       setYear(String(d.getFullYear()));
       setAmount(entry.amountCents ? (entry.amountCents / 100).toFixed(2) : '');
       setPaymentMethod(entry.paymentMethod || 'cash');
-      setDestinationAccount(entry.destinationAccount || 'cash');
+      setDestinationAccount(entry.destinationAccount || firstPersonalKey);
       setNotes(entry.notes || '');
     } else if (!visible) {
       const t = new Date();
@@ -32,14 +54,17 @@ export default function LogMassageIncomeModal({ visible, onClose, onConfirm, ent
       setYear(String(t.getFullYear()));
       setAmount('');
       setPaymentMethod('cash');
-      setDestinationAccount('cash');
+      setDestinationAccount(firstCashKey || firstPersonalKey);
       setNotes('');
     }
   }, [visible, entry]);
 
   useEffect(() => {
-    if (paymentMethod === 'venmo') setDestinationAccount('entChecking');
-    if (paymentMethod === 'cash') setDestinationAccount('cash');
+    if (paymentMethod === 'venmo') {
+      setDestinationAccount(firstCheckingKey || firstPersonalKey);
+    } else if (paymentMethod === 'cash') {
+      setDestinationAccount(firstCashKey || firstPersonalKey);
+    }
   }, [paymentMethod]);
 
   const handleConfirm = () => {
@@ -78,15 +103,12 @@ export default function LogMassageIncomeModal({ visible, onClose, onConfirm, ent
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Destination Account</Text>
-          <View style={styles.toggleRow}>
-            <TouchableOpacity style={[styles.toggleBtn, destinationAccount === 'cash' && styles.toggleBtnActive]} onPress={() => setDestinationAccount('cash')}>
-              <Text style={[styles.toggleText, destinationAccount === 'cash' && styles.toggleTextActive]}>Cash</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.toggleBtn, destinationAccount === 'entChecking' && styles.toggleBtnActive]} onPress={() => setDestinationAccount('entChecking')}>
-              <Text style={[styles.toggleText, destinationAccount === 'entChecking' && styles.toggleTextActive]}>ENT Checking</Text>
-            </TouchableOpacity>
-          </View>
+          <AccountPickerSheet
+            label="Destination Account"
+            roleFilter={['personal']}
+            selectedKey={destinationAccount}
+            onSelect={setDestinationAccount}
+          />
 
           <Text style={styles.label}>Notes</Text>
           <TextInput style={styles.input} placeholder="Notes (optional)" placeholderTextColor={theme.textDim} value={notes} onChangeText={setNotes} />
