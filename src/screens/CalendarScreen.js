@@ -228,12 +228,9 @@ export default function CalendarScreen({ navigation }) {
       <EditBillModal
         visible={editingBill !== null}
         bill={editingBill}
-        accountOptions={[
-          { key: 'jointChecking', label: 'JOINT CHECKING' },
-          { key: 'entChecking', label: 'ENT CHECKING' },
-          { key: 'venmo', label: 'VENMO' },
-          { key: 'cash', label: 'CASH' },
-        ]}
+        accountOptions={(accountRegistry || [])
+          .filter(a => a.isActive !== false)
+          .map(a => ({ key: a.legacyKey || a.id, label: (a.name || a.id).toUpperCase() }))}
         onSubmit={async (updates) => { await editBill(editingBill.id, updates); setEditingBill(null); }}
         onDelete={() => { deleteBill(editingBill.id); setEditingBill(null); }}
         onClose={() => setEditingBill(null)}

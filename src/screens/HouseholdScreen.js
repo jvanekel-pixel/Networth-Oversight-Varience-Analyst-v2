@@ -6,9 +6,6 @@ import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '
 import { getPartnerDepositDate, formatDate, timeAgo, getCurrentWeekStart } from '../utils/dates';
 import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 
-const ACCOUNT_LABELS_HH = {
-  jointChecking: 'Joint Checking',
-};
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -144,7 +141,12 @@ function DepositModal({ visible, expectedAmount, onSubmit, onClose }) {
 
 export default function HouseholdScreen() {
   const userMode = useStore((s) => s.novaConfig?.userMode);
-  const isPartnered = !userMode || userMode === 'partnered';
+  const accountRegistry = useStore((s) => s.accountRegistry);
+  const isPartnered = userMode === 'partnered';
+  const householdAccount = (accountRegistry || []).find(a => a.isActive !== false && a.role === 'household');
+  const householdAccountKey = householdAccount ? (householdAccount.legacyKey || householdAccount.id) : null;
+  const householdAccountLabel = householdAccount ? (householdAccount.name || 'Shared Account') : 'Shared Account';
+  const householdAccountOptions = householdAccount ? [{ key: householdAccountKey, label: householdAccountLabel.toUpperCase() }] : [];
   const {
     accounts,
     incomeEvents,
@@ -215,15 +217,19 @@ export default function HouseholdScreen() {
     : theme.statusPositive;
 
   const sortedBills = [...(householdBills || [])].filter(b => b.isActive !== false).sort((a, b) => (a.dueDay || a.expectedDay || 0) - (b.dueDay || b.expectedDay || 0));
-  const jointWarnings = (warnings || []).filter(w => w.accountKey === 'jointChecking');
+  const jointWarnings = householdAccountKey
+    ? (warnings || []).filter(w => w.accountKey === householdAccountKey)
+    : [];
 
   const handleTxSubmit = async ({ amountCents, category, description }) => {
-    await logTransaction({ accountKey: 'jointChecking', amountCents, category, description });
+    if (!householdAccountKey) return;
+    await logTransaction({ accountKey: householdAccountKey, amountCents, category, description });
     checkSpendingFloors();
   };
 
   const handleEditBalance = async (cents) => {
-    await updateAccountBalance('jointChecking', cents);
+    if (!householdAccountKey) return;
+    await updateAccountBalance(householdAccountKey, cents);
     checkSpendingFloors();
   };
 
@@ -247,21 +253,31 @@ export default function HouseholdScreen() {
         <Text style={styles.screenSubtitle}>Joint Accounts + Bills</Text>
       </View>
 
-      {/* 2. Joint Checking card */}
+      {/* 2. Shared account balance card */}
       <Card>
-        <Text style={styles.cardLabel}>JOINT CHECKING</Text>
-        <Text style={styles.balanceText}>{formatCentsShort(accounts.jointChecking)}</Text>
-        <View style={styles.btnRow}>
-          <TouchableOpacity style={styles.btnIncome} onPress={() => setTxType('income')}>
-            <Text style={styles.btnText}>LOG INCOME</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnExpense} onPress={() => setTxType('expense')}>
-            <Text style={styles.btnText}>LOG EXPENSE</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnDim} onPress={() => setEditBalVisible(true)}>
-            <Text style={styles.btnDimText}>EDIT BAL</Text>
-          </TouchableOpacity>
-        </View>
+        {householdAccount ? (
+          <>
+            <Text style={styles.cardLabel}>{householdAccountLabel.toUpperCase()}</Text>
+            <Text style={styles.balanceText}>{formatCentsShort(accounts[householdAccountKey] || 0)}</Text>
+            <View style={styles.btnRow}>
+              <TouchableOpacity style={styles.btnIncome} onPress={() => setTxType('income')}>
+                <Text style={styles.btnText}>LOG INCOME</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnExpense} onPress={() => setTxType('expense')}>
+                <Text style={styles.btnText}>LOG EXPENSE</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnDim} onPress={() => setEditBalVisible(true)}>
+                <Text style={styles.btnDimText}>EDIT BAL</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.cardLabel}>SHARED ACCOUNT</Text>
+            <Text style={styles.balanceText}>—</Text>
+            <Text style={[styles.metaText, { marginTop: theme.spacingSM }]}>Add a shared account in Settings.</Text>
+          </>
+        )}
       </Card>
 
       {/* 3. Partner Deposit card */}
@@ -285,7 +301,7 @@ export default function HouseholdScreen() {
       )}
 
       {/* 4. Grocery Budget card */}
-      <Card>
+      {isPartnered && <Card>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.cardLabel}>GROCERY BUDGET</Text>
           <TouchableOpacity onPress={() => setLimitVisible(true)}>
@@ -332,10 +348,10 @@ export default function HouseholdScreen() {
             <Text style={styles.groceryEntryMeta}>{timeAgo(entry.timestamp)}</Text>
           </TouchableOpacity>
         ))}
-      </Card>
+      </Card>}
 
       {/* 5. Household Bills */}
-      <Card>
+      {isPartnered && <Card>
         <Text style={styles.cardLabel}>HOUSEHOLD BILLS</Text>
         {sortedBills.length === 0 && (
           <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No bills added yet.</Text>
@@ -366,12 +382,12 @@ export default function HouseholdScreen() {
         <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
           <Text style={styles.addBillText}>+ ADD BILL</Text>
         </TouchableOpacity>
-      </Card>
+      </Card>}
 
       {/* 6. Recent Activity */}
-      {(() => {
+      {isPartnered && (() => {
         const recentTx = [...(transactions || [])]
-          .filter(t => !t.deleted && t.accountKey === 'jointChecking')
+          .filter(t => !t.deleted && householdAccountKey && t.accountKey === householdAccountKey)
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
           .slice(0, 10);
         return (
@@ -383,7 +399,7 @@ export default function HouseholdScreen() {
             {recentTx.map(tx => {
               const isPositive = tx.amountCents > 0;
               const desc = (tx.description || '').slice(0, 30);
-              const acctLabel = ACCOUNT_LABELS_HH[tx.accountKey] || tx.accountKey;
+              const acctLabel = householdAccountLabel;
               return (
                 <TouchableOpacity
                   key={tx.id}
@@ -406,11 +422,11 @@ export default function HouseholdScreen() {
       })()}
 
       {/* 7. Floor warnings */}
-      {jointWarnings.length > 0 && (
+      {isPartnered && jointWarnings.length > 0 && (
         <View style={styles.warningCard}>
           {jointWarnings.map((w, i) => (
             <Text key={i} style={styles.warningText}>
-              ⚠ JOINT CHECKING below floor ({formatCents(w.floor)}) — current: {formatCents(w.balance)}
+              ⚠ {householdAccountLabel.toUpperCase()} below floor ({formatCents(w.floor)}) — current: {formatCents(w.balance)}
             </Text>
           ))}
         </View>
@@ -445,13 +461,13 @@ export default function HouseholdScreen() {
       <LogTransactionModal
         visible={txType !== null}
         type={txType}
-        accountName="Joint Checking"
+        accountName={householdAccountLabel}
         onSubmit={handleTxSubmit}
         onClose={() => setTxType(null)}
       />
       <EditBalanceModal
         visible={editBalVisible}
-        accountName="Joint Checking"
+        accountName={householdAccountLabel}
         onSubmit={handleEditBalance}
         onClose={() => setEditBalVisible(false)}
       />
@@ -474,14 +490,14 @@ export default function HouseholdScreen() {
       />
       <AddBillModal
         visible={addBillVisible}
-        accountOptions={[{ key: 'jointChecking', label: 'JOINT CHECKING' }]}
+        accountOptions={householdAccountOptions}
         onSubmit={async (bill) => { await addHouseholdBill(bill); }}
         onClose={() => setAddBillVisible(false)}
       />
       <MarkPaidModal
         visible={markPaidBill !== null}
         bill={markPaidBill}
-        accountOptions={[{ key: 'jointChecking', label: 'JOINT CHECKING' }]}
+        accountOptions={householdAccountOptions}
         onSubmit={async (payment) => {
           await markBillPaid(markPaidBill.id, payment);
           checkSpendingFloors();
@@ -492,7 +508,7 @@ export default function HouseholdScreen() {
       <EditBillModal
         visible={editingBill !== null}
         bill={editingBill}
-        accountOptions={[{ key: 'jointChecking', label: 'JOINT CHECKING' }]}
+        accountOptions={householdAccountOptions}
         onSubmit={async (updates) => {
           await editBill(editingBill.id, updates);
           setEditingBill(null);
