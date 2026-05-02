@@ -7,15 +7,6 @@ import { formatDate, timeAgo } from '../utils/dates';
 import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
 
-const ACCOUNT_LABELS = {
-  entChecking: 'ENT CHECKING',
-  entSavings: 'ENT SAVINGS',
-  venmo: 'VENMO',
-  cash: 'CASH',
-};
-
-const PERSONAL_ACCOUNTS = ['entChecking', 'entSavings', 'venmo', 'cash'];
-
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
   const s = ['th', 'st', 'nd', 'rd'];
@@ -94,13 +85,13 @@ function PaycheckModal({ visible, splits, onSubmit, onClose }) {
   );
 }
 
-function AccountCard({ accountKey, balance, floor, onIncome, onExpense, onEditBal }) {
+function AccountCard({ account, balance, floorCents, onIncome, onExpense, onEditBal }) {
   return (
     <Card>
-      <Text style={styles.cardLabel}>{ACCOUNT_LABELS[accountKey]}</Text>
+      <Text style={styles.cardLabel}>{(account.name || account.id).toUpperCase()}</Text>
       <Text style={styles.balanceText}>{formatCentsShort(balance)}</Text>
-      {floor > 0 && (
-        <Text style={styles.floorText}>Floor: {formatCents(floor)}</Text>
+      {floorCents > 0 && (
+        <Text style={styles.floorText}>Floor: {formatCents(floorCents)}</Text>
       )}
       <View style={styles.btnRow}>
         <TouchableOpacity style={styles.btnIncome} onPress={onIncome}>
@@ -117,12 +108,48 @@ function AccountCard({ accountKey, balance, floor, onIncome, onExpense, onEditBa
   );
 }
 
+function PayCycleSummaryCard({ incomeEvents, paycheckSplits, accountRegistry, onRecordPaycheck }) {
+  const nextDate = incomeEvents?.nextPaycheckDate;
+  const isEmpty = !paycheckSplits || paycheckSplits.length === 0;
+  return (
+    <Card>
+      <Text style={styles.cardLabel}>PAY CYCLE</Text>
+      <Text style={styles.metaText}>
+        Next paycheck: {nextDate ? formatDate(nextDate) : 'Not set'}
+      </Text>
+      {isEmpty ? (
+        <Text style={[styles.metaText, { color: theme.textDim, marginTop: 4 }]}>
+          Paycheck split not configured — set up in Settings.
+        </Text>
+      ) : (
+        <View style={styles.distPreview}>
+          <Text style={styles.distLabel}>Next distribution:</Text>
+          {paycheckSplits.map((split) => {
+            const acctId = split.accountId || split.accountKey;
+            const acct = (accountRegistry || []).find(a => (a.legacyKey || a.id) === acctId || a.id === acctId);
+            const label = acct ? (acct.name || acct.id) : (split.label || acctId || 'Unknown');
+            return (
+              <Text key={split.id} style={styles.distLine}>
+                {formatCents(split.amountCents)} → {label}
+              </Text>
+            );
+          })}
+        </View>
+      )}
+      {!isEmpty && (
+        <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={onRecordPaycheck}>
+          <Text style={styles.btnText}>RECORD PAYCHECK</Text>
+        </TouchableOpacity>
+      )}
+    </Card>
+  );
+}
+
 export default function PersonalScreen() {
   const {
     accounts,
     accountFloors,
     incomeEvents,
-    distribution,
     personalBills,
     billOverrides,
     warnings,
@@ -130,6 +157,7 @@ export default function PersonalScreen() {
     massageIncome,
     postPaydayActions,
     novaConfig,
+    accountRegistry,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -145,6 +173,18 @@ export default function PersonalScreen() {
     checkSpendingFloors,
   } = useStore();
   const personalVariance = useStore((s) => s.varianceCache.personal);
+
+  const personalAccounts = (accountRegistry || []).filter(a => a.isActive !== false && a.role === 'personal');
+  const personalAccountKeys = personalAccounts.map(a => a.legacyKey || a.id);
+  const getAccountName = (key) => {
+    const acct = personalAccounts.find(a => (a.legacyKey || a.id) === key);
+    return acct ? (acct.name || acct.id) : key;
+  };
+  const getAccountObj = (key) => personalAccounts.find(a => (a.legacyKey || a.id) === key);
+  const personalAccountOptions = personalAccounts.map(a => ({
+    key: a.legacyKey || a.id,
+    label: (a.name || a.id).toUpperCase(),
+  }));
 
   // Single modal state: { accountKey, modalType } — null means closed
   const [activeModal, setActiveModal] = useState({ accountKey: null, modalType: null });
@@ -175,7 +215,7 @@ export default function PersonalScreen() {
   const getFloor = (key) =>
     accountFloors[key] !== undefined ? accountFloors[key] : (accountFloors.others || 0);
 
-  const personalWarnings = (warnings || []).filter(w => PERSONAL_ACCOUNTS.includes(w.accountKey));
+  const personalWarnings = (warnings || []).filter(w => personalAccountKeys.includes(w.accountKey));
 
   const sortedBills = [...(personalBills || [])].filter(b => b.isActive !== false).sort((a, b) => (a.dueDay || a.expectedDay || 0) - (b.dueDay || b.expectedDay || 0));
 
@@ -196,7 +236,7 @@ export default function PersonalScreen() {
     checkSpendingFloors();
   };
 
-  const { paycheckAmount = 0, nextPaycheckDate = null } = incomeEvents;
+  const { paycheckAmountCents = 0, nextPaycheckDate = null } = incomeEvents;
 
   const actionsNow = Date.now();
   const pendingActions = (postPaydayActions || []).filter(a => !a.completed && actionsNow < a.expiresAt);
@@ -242,50 +282,40 @@ export default function PersonalScreen() {
         );
       })()}
 
-      {/* 2. Four account cards */}
-      {PERSONAL_ACCOUNTS.map(key => (
-        <AccountCard
-          key={key}
-          accountKey={key}
-          balance={accounts[key] || 0}
-          floor={getFloor(key)}
-          onIncome={() => setActiveModal({ accountKey: key, modalType: 'income' })}
-          onExpense={() => setActiveModal({ accountKey: key, modalType: 'expense' })}
-          onEditBal={() => setActiveModal({ accountKey: key, modalType: 'edit' })}
-        />
-      ))}
+      {/* 2. Account cards — dynamic from registry */}
+      {personalAccounts.length === 0 && (
+        <Card>
+          <Text style={styles.cardLabel}>NO ACCOUNTS</Text>
+          <Text style={styles.metaText}>No personal accounts configured. Add one in Settings.</Text>
+        </Card>
+      )}
+      {personalAccounts.map(acct => {
+        const key = acct.legacyKey || acct.id;
+        return (
+          <AccountCard
+            key={acct.id}
+            account={acct}
+            balance={accounts[key] || 0}
+            floorCents={getFloor(key)}
+            onIncome={() => setActiveModal({ accountKey: key, modalType: 'income' })}
+            onExpense={() => setActiveModal({ accountKey: key, modalType: 'expense' })}
+            onEditBal={() => setActiveModal({ accountKey: key, modalType: 'edit' })}
+          />
+        );
+      })}
 
       {/* 3. Pay Cycle card */}
-      <Card>
-        <Text style={styles.cardLabel}>PAY CYCLE</Text>
-        <Text style={styles.metaText}>
-          Paycheck amount: {paycheckAmount > 0 ? formatCents(paycheckAmount) : 'Not set'}
-        </Text>
-        <Text style={styles.metaText}>
-          Next paycheck: {nextPaycheckDate ? formatDate(nextPaycheckDate) : 'Not set'}
-        </Text>
-        <View style={styles.distPreview}>
-          <Text style={styles.distLabel}>Next distribution:</Text>
-          <Text style={styles.distLine}>
-            {formatCents(distribution.entSavings)} → ENT Savings
-          </Text>
-          <Text style={styles.distLine}>
-            {formatCents(distribution.venmo)} → Venmo
-          </Text>
-          <Text style={styles.distLine}>
-            Remainder → ENT Checking
-          </Text>
-        </View>
-        <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setPaycheckVisible(true)}>
-          <Text style={styles.btnText}>RECORD PAYCHECK</Text>
-        </TouchableOpacity>
-      </Card>
+      <PayCycleSummaryCard
+        incomeEvents={incomeEvents}
+        paycheckSplits={novaConfig?.paycheckSplits}
+        accountRegistry={accountRegistry}
+        onRecordPaycheck={() => setPaycheckVisible(true)}
+      />
 
       {/* 4. Recent Activity */}
       {(() => {
-        const personalAccts = ['entChecking', 'entSavings', 'venmo', 'cash'];
         const recentTx = [...(transactions || [])]
-          .filter(t => !t.deleted && personalAccts.includes(t.accountKey))
+          .filter(t => !t.deleted && personalAccountKeys.includes(t.accountKey))
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
           .slice(0, 10);
         return (
@@ -297,7 +327,7 @@ export default function PersonalScreen() {
             {recentTx.map(tx => {
               const isPositive = tx.amountCents > 0;
               const desc = (tx.description || '').slice(0, 30);
-              const acctLabel = ACCOUNT_LABELS[tx.accountKey] || tx.accountKey;
+              const acctLabel = getAccountName(tx.accountKey);
               return (
                 <TouchableOpacity
                   key={tx.id}
@@ -377,7 +407,7 @@ export default function PersonalScreen() {
         <View style={styles.warningCard}>
           {personalWarnings.map((w, i) => (
             <Text key={i} style={styles.warningText}>
-              ⚠ {ACCOUNT_LABELS[w.accountKey] || w.accountKey} below floor ({formatCents(w.floor)}) — current: {formatCents(w.balance)}
+              ⚠ {getAccountName(w.accountKey).toUpperCase()} below floor ({formatCents(w.floor)}) — current: {formatCents(w.balance)}
             </Text>
           ))}
         </View>
@@ -421,13 +451,13 @@ export default function PersonalScreen() {
       <LogTransactionModal
         visible={activeModal.modalType === 'income' || activeModal.modalType === 'expense'}
         type={activeModal.modalType}
-        accountName={ACCOUNT_LABELS[activeModal.accountKey] || ''}
+        accountName={getAccountName(activeModal.accountKey)}
         onSubmit={handleTxSubmit}
         onClose={closeModal}
       />
       <EditBalanceModal
         visible={activeModal.modalType === 'edit'}
-        accountName={ACCOUNT_LABELS[activeModal.accountKey] || ''}
+        accountName={getAccountName(activeModal.accountKey)}
         onSubmit={handleEditBalance}
         onClose={closeModal}
       />
@@ -439,22 +469,14 @@ export default function PersonalScreen() {
       />
       <AddBillModal
         visible={addBillVisible}
-        accountOptions={[
-          { key: 'entChecking', label: 'ENT CHECKING' },
-          { key: 'venmo', label: 'VENMO' },
-          { key: 'cash', label: 'CASH' },
-        ]}
+        accountOptions={personalAccountOptions}
         onSubmit={async (bill) => { await addPersonalBill(bill); }}
         onClose={() => setAddBillVisible(false)}
       />
       <MarkPaidModal
         visible={markPaidBill !== null}
         bill={markPaidBill}
-        accountOptions={[
-          { key: 'entChecking', label: 'ENT CHECKING' },
-          { key: 'venmo', label: 'VENMO' },
-          { key: 'cash', label: 'CASH' },
-        ]}
+        accountOptions={personalAccountOptions}
         onSubmit={async (payment) => {
           await markBillPaid(markPaidBill.id, payment);
           checkSpendingFloors();
@@ -465,11 +487,7 @@ export default function PersonalScreen() {
       <EditBillModal
         visible={editingBill !== null}
         bill={editingBill}
-        accountOptions={[
-          { key: 'entChecking', label: 'ENT CHECKING' },
-          { key: 'venmo', label: 'VENMO' },
-          { key: 'cash', label: 'CASH' },
-        ]}
+        accountOptions={personalAccountOptions}
         onSubmit={async (updates) => {
           await editBill(editingBill.id, updates);
           setEditingBill(null);
