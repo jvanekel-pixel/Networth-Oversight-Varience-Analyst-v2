@@ -21,7 +21,16 @@ import {
 import { useExport } from './src/hooks/useExport';
 
 import NovaHeader from './src/components/NovaHeader';
-import OnboardingScreen from './src/screens/OnboardingScreen';
+import { WizardProvider } from './src/screens/onboarding/WizardContext';
+import WelcomeScreen from './src/screens/onboarding/WelcomeScreen';
+import OnboardingUserModeScreen from './src/screens/onboarding/OnboardingUserModeScreen';
+import OnboardingAccountsScreen from './src/screens/onboarding/OnboardingAccountsScreen';
+import OnboardingIncomeScreen from './src/screens/onboarding/OnboardingIncomeScreen';
+import OnboardingBillsScreen from './src/screens/onboarding/OnboardingBillsScreen';
+import OnboardingBucketsScreen from './src/screens/onboarding/OnboardingBucketsScreen';
+import OnboardingSavingsGoalScreen from './src/screens/onboarding/OnboardingSavingsGoalScreen';
+import OnboardingEntrepreneurScreen from './src/screens/onboarding/OnboardingEntrepreneurScreen';
+import OnboardingReviewScreen from './src/screens/onboarding/OnboardingReviewScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import HouseholdScreen from './src/screens/HouseholdScreen';
 import PersonalScreen from './src/screens/PersonalScreen';
@@ -31,11 +40,13 @@ import CalendarScreen from './src/screens/CalendarScreen';
 import BusinessSelectorScreen from './src/screens/BusinessSelectorScreen';
 import MassageScreen from './src/screens/MassageScreen';
 import CleaningScreen from './src/screens/CleaningScreen';
+import BusinessDetailScreen from './src/screens/BusinessDetailScreen';
 
 enableScreens(false);
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+const OnboardingStack = createNativeStackNavigator();
 
 function getNextSunday7pm() {
   const now = new Date();
@@ -222,6 +233,7 @@ async function runAppOpenChecks(incomeEvents, checkAndRunAutoExport) {
 }
 
 function MainTabs() {
+  const entrepreneurMode = useStore((s) => s.novaConfig?.entrepreneurMode);
   return (
     <Tab.Navigator
       screenOptions={{
@@ -235,14 +247,36 @@ function MainTabs() {
       <Tab.Screen name={theme.tabDashboard} component={DashboardScreen} />
       <Tab.Screen name={theme.tabHousehold} component={HouseholdScreen} />
       <Tab.Screen name={theme.tabPersonal} component={PersonalScreen} />
-      <Tab.Screen name={theme.tabBusiness} component={BusinessScreen} />
+      {entrepreneurMode && (
+        <Tab.Screen name={theme.tabBusiness} component={BusinessScreen} />
+      )}
       <Tab.Screen name={theme.tabSettings} component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
 
+function OnboardingNav() {
+  return (
+    <NavigationContainer>
+      <WizardProvider>
+        <OnboardingStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          <OnboardingStack.Screen name="OnboardingWelcome" component={WelcomeScreen} />
+          <OnboardingStack.Screen name="OnboardingUserMode" component={OnboardingUserModeScreen} />
+          <OnboardingStack.Screen name="OnboardingAccounts" component={OnboardingAccountsScreen} />
+          <OnboardingStack.Screen name="OnboardingIncome" component={OnboardingIncomeScreen} />
+          <OnboardingStack.Screen name="OnboardingBills" component={OnboardingBillsScreen} />
+          <OnboardingStack.Screen name="OnboardingBuckets" component={OnboardingBucketsScreen} />
+          <OnboardingStack.Screen name="OnboardingSavingsGoal" component={OnboardingSavingsGoalScreen} />
+          <OnboardingStack.Screen name="OnboardingEntrepreneur" component={OnboardingEntrepreneurScreen} />
+          <OnboardingStack.Screen name="OnboardingReview" component={OnboardingReviewScreen} />
+        </OnboardingStack.Navigator>
+      </WizardProvider>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
-  const onboardingComplete = useStore((s) => s.onboardingComplete);
+  const onboardingComplete = useStore((s) => s.novaConfig?.onboardingComplete);
   const initStore = useStore((s) => s.initStore);
   const rotateFlavorText = useStore((s) => s.rotateFlavorText);
   const checkCycleReset = useStore((s) => s.checkCycleReset);
@@ -273,7 +307,7 @@ export default function App() {
   }, [incomeEvents, checkAndRunAutoExport, pruneExpiredPostPaydayActions]);
 
   if (!onboardingComplete) {
-    return <OnboardingScreen />;
+    return <OnboardingNav />;
   }
 
   return (
@@ -287,6 +321,7 @@ export default function App() {
           <Stack.Screen name="BusinessSelector" component={BusinessSelectorScreen} />
           <Stack.Screen name="Massage" component={MassageScreen} />
           <Stack.Screen name="Cleaning" component={CleaningScreen} />
+          <Stack.Screen name="BusinessDetail" component={BusinessDetailScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>

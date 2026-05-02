@@ -57,6 +57,21 @@ export function buildMassageExpenseCsv(massageExpenses) {
   return lines.join('\n');
 }
 
+export function buildCleaningIncomeCsv(cleaningIncome) {
+  const rows = (cleaningIncome || []).filter(r => !r.deleted).sort((a, b) => a.date - b.date);
+  const lines = ['Date,Amount,Client,Payment Method,Notes'];
+  for (const r of rows) {
+    lines.push([
+      new Date(r.date).toLocaleDateString(),
+      (r.amountCents / 100).toFixed(2),
+      esc(r.clientName || r.client),
+      esc(r.paymentMethod),
+      esc(r.notes),
+    ].join(','));
+  }
+  return lines.join('\n');
+}
+
 export function buildCleaningExpenseCsv(cleaningExpenses) {
   const rows = (cleaningExpenses || []).filter(r => !r.deleted).sort((a, b) => a.date - b.date);
   const lines = ['Date,Amount,Category,Description,Tax Deductible,Receipt Note'];

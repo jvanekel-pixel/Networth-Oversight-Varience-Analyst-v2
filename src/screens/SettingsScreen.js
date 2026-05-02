@@ -11,6 +11,11 @@ import { useExport } from '../hooks/useExport';
 import AccountFloorsSection from '../components/settings/AccountFloorsSection';
 import IrsMileageRateSection from '../components/settings/IrsMileageRateSection';
 import AboutSection from '../components/settings/AboutSection';
+import ProfileModeSection from '../components/settings/ProfileModeSection';
+import AccountsSection from '../components/settings/AccountsSection';
+import SpendingBucketsSection from '../components/settings/SpendingBucketsSection';
+import SavingsGoalSection from '../components/settings/SavingsGoalSection';
+import EntrepreneurModeSection from '../components/settings/EntrepreneurModeSection';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FREQ_OPTIONS = [
@@ -278,9 +283,34 @@ export default function SettingsScreen() {
         <Text style={styles.screenSubtitle}>Configuration</Text>
       </View>
 
+      {/* 0a. PROFILE MODE */}
+      <View style={styles.section}>
+        <ProfileModeSection />
+      </View>
+
+      {/* 0b. ENTREPRENEUR MODE */}
+      <View style={styles.section}>
+        <EntrepreneurModeSection />
+      </View>
+
       {/* 1. ACCOUNT FLOORS */}
       <View style={styles.section}>
         <AccountFloorsSection />
+      </View>
+
+      {/* 1b. ACCOUNTS */}
+      <View style={styles.section}>
+        <AccountsSection />
+      </View>
+
+      {/* 1c. SPENDING CATEGORIES */}
+      <View style={styles.section}>
+        <SpendingBucketsSection />
+      </View>
+
+      {/* 1d. SAVINGS GOAL */}
+      <View style={styles.section}>
+        <SavingsGoalSection />
       </View>
 
       {/* 2. PAY SCHEDULE */}

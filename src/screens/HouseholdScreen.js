@@ -143,6 +143,8 @@ function DepositModal({ visible, expectedAmount, onSubmit, onClose }) {
 }
 
 export default function HouseholdScreen() {
+  const userMode = useStore((s) => s.novaConfig?.userMode);
+  const isPartnered = !userMode || userMode === 'partnered';
   const {
     accounts,
     incomeEvents,
@@ -252,22 +254,24 @@ export default function HouseholdScreen() {
       </Card>
 
       {/* 3. Partner Deposit card */}
-      <Card>
-        <Text style={styles.cardLabel}>PARTNER DEPOSIT</Text>
-        <Text style={styles.metaText}>Expected: {formatDate(expectedDepositDate.getTime())}</Text>
-        {depositReceivedThisMonth ? (
-          <Text style={[styles.metaText, { color: theme.statusPositive }]}>✓ Received this month</Text>
-        ) : depositDatePast ? (
-          <Text style={[styles.metaText, { color: theme.statusWarning }]}>⚠ Not yet received — date passed</Text>
-        ) : (
-          <Text style={[styles.metaText, { color: theme.textSecondary }]}>Pending</Text>
-        )}
-        {!depositReceivedThisMonth && (
-          <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setDepositVisible(true)}>
-            <Text style={styles.btnText}>RECORD DEPOSIT</Text>
-          </TouchableOpacity>
-        )}
-      </Card>
+      {isPartnered && (
+        <Card>
+          <Text style={styles.cardLabel}>PARTNER DEPOSIT</Text>
+          <Text style={styles.metaText}>Expected: {formatDate(expectedDepositDate.getTime())}</Text>
+          {depositReceivedThisMonth ? (
+            <Text style={[styles.metaText, { color: theme.statusPositive }]}>✓ Received this month</Text>
+          ) : depositDatePast ? (
+            <Text style={[styles.metaText, { color: theme.statusWarning }]}>⚠ Not yet received — date passed</Text>
+          ) : (
+            <Text style={[styles.metaText, { color: theme.textSecondary }]}>Pending</Text>
+          )}
+          {!depositReceivedThisMonth && (
+            <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setDepositVisible(true)}>
+              <Text style={styles.btnText}>RECORD DEPOSIT</Text>
+            </TouchableOpacity>
+          )}
+        </Card>
+      )}
 
       {/* 4. Grocery Budget card */}
       <Card>

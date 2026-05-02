@@ -51,6 +51,11 @@ export default function DashboardScreen({ navigation }) {
   const businessData  = useStore((s) => s.varianceCache.business);
   const transactions = useStore((s) => s.transactions);
   const confirmBalance = useStore((s) => s.confirmBalance);
+  const accountRegistry = useStore((s) => s.accountRegistry);
+  const entrepreneurMode = useStore((s) => s.novaConfig?.entrepreneurMode);
+
+  const showHousehold = accountRegistry.length === 0 || accountRegistry.some(a => a.isActive !== false && a.role === 'household');
+  const showBusiness = entrepreneurMode !== false;
 
   const now = new Date();
   const cycleLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -77,9 +82,13 @@ export default function DashboardScreen({ navigation }) {
 
       {/* Profile cards */}
       <View style={styles.cardsContainer}>
-        <VarianceCard profile="household" data={householdData || { balance: 0, variance: 0, state: 'neutral', annotation: '—' }} onPress={() => navigateTo('household')} />
+        {showHousehold && (
+          <VarianceCard profile="household" data={householdData || { balance: 0, variance: 0, state: 'neutral', annotation: '—' }} onPress={() => navigateTo('household')} />
+        )}
         <VarianceCard profile="personal"  data={personalData  || { balance: 0, variance: 0, state: 'neutral', annotation: '—' }} onPress={() => navigateTo('personal')} />
-        <VarianceCard profile="business"  data={businessData  || { balance: 0, variance: 0, state: 'neutral', annotation: '—' }} onPress={() => navigateTo('business')} />
+        {showBusiness && (
+          <VarianceCard profile="business"  data={businessData  || { balance: 0, variance: 0, state: 'neutral', annotation: '—' }} onPress={() => navigateTo('business')} />
+        )}
       </View>
 
       {/* Quick actions */}

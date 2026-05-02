@@ -86,7 +86,28 @@ function subtractPayFrequency(cursorMs, payFrequency) {
   return cursorMs - 14 * 24 * 60 * 60 * 1000;
 }
 
-export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
+const PROFILE_ACCOUNTS_FALLBACK = {
+  household: ['jointChecking'],
+  personal: ['entChecking', 'entSavings', 'venmo', 'cash'],
+  business: [],
+};
+
+export function getProfileAccounts(profile, accountRegistry = []) {
+  if (!accountRegistry || accountRegistry.length === 0) {
+    return PROFILE_ACCOUNTS_FALLBACK[profile] || [];
+  }
+  return accountRegistry
+    .filter(a => a.isActive !== false && a.role === profile)
+    .map(a => a.legacyKey || a.id);
+}
+
+function getAccountKeyByRole(role, accountRegistry, fallback) {
+  if (!accountRegistry || accountRegistry.length === 0) return fallback;
+  const entry = accountRegistry.find(a => a.isActive !== false && a.role === role);
+  return entry ? (entry.legacyKey || entry.id) : fallback;
+}
+
+export const getIncomeEventsBetween = (incomeEvents, startMs, endMs, accountRegistry = []) => {
   const events = [];
   if (!incomeEvents) return events;
 
@@ -96,6 +117,9 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
   const partnerDepositAmountCents = incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0;
   const partnerDepositSchedule = incomeEvents.partnerDepositSchedule ?? 'last_day';
   const partnerDepositLastReceivedMonth = incomeEvents.partnerDepositLastReceivedMonth;
+
+  const paycheckAccountKey = getAccountKeyByRole('personal', accountRegistry, 'entChecking');
+  const partnerDepositAccountKey = getAccountKeyByRole('household', accountRegistry, 'jointChecking');
 
   // Operator paycheck — forward walk using configured pay frequency
   if (nextPaycheckDate != null && paycheckAmountCents > 0 && payFrequency !== 'unscheduled') {
@@ -108,7 +132,7 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
         dateMs: cursor,
         source: 'operator_paycheck',
         amountCents: paycheckAmountCents,
-        accountKey: 'entChecking',
+        accountKey: paycheckAccountKey,
       });
       cursor = addPayFrequency(cursor, payFrequency);
     }
@@ -138,7 +162,7 @@ export const getIncomeEventsBetween = (incomeEvents, startMs, endMs) => {
             dateMs,
             source: 'partner_deposit',
             amountCents: partnerDepositAmountCents,
-            accountKey: 'jointChecking',
+            accountKey: partnerDepositAccountKey,
           });
         }
       }
@@ -158,10 +182,11 @@ export const projectBalance = ({
   incomeEvents,
   groceryWeeklyLimit = 0,
   groceryAccountKey = 'jointChecking',
+  accountRegistry = [],
 }) => {
   const now = Date.now();
   const billEvents = getBillEventsBetween(bills, now, targetDateMs);
-  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, targetDateMs);
+  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, targetDateMs, accountRegistry);
   const eventLog = [];
 
   let balance = currentBalance;
@@ -199,6 +224,7 @@ export const findMinimumProjectedBalance = ({
   incomeEvents,
   daysAhead = 14,
   floorCents = 0,
+  accountRegistry = [],
 }) => {
   const now = Date.now();
   const currentCycleId = getCurrentCycleId(now);
@@ -217,6 +243,7 @@ export const findMinimumProjectedBalance = ({
       targetDateMs,
       bills: billsForScan,
       incomeEvents,
+      accountRegistry,
     });
     if (projectedBalance < minimumBalance) {
       minimumBalance = projectedBalance;
@@ -236,12 +263,6 @@ export const findMinimumProjectedBalance = ({
   return { minimumBalance, minimumDate, dipsBelowFloor, triggerBillName };
 };
 
-const PROFILE_ACCOUNTS = {
-  household: ['jointChecking'],
-  personal: ['entChecking', 'entSavings', 'venmo', 'cash'],
-  business: [],
-};
-
 function formatAnnotationDate(ms) {
   const d = new Date(ms);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -259,6 +280,7 @@ export const computeProfileVariance = ({
   massageExpenses = [],
   cleaningExpenses = [],
   now = Date.now(),
+  accountRegistry = [],
 }) => {
   if (profile === 'business') {
     const d = new Date(now);
@@ -301,7 +323,7 @@ export const computeProfileVariance = ({
     return { balance, variance, state, annotation, dipPeriod: null, redDate: null };
   }
 
-  const profileAccounts = PROFILE_ACCOUNTS[profile] || [];
+  const profileAccounts = getProfileAccounts(profile, accountRegistry);
   const currentBalance = profileAccounts.reduce((sum, key) => sum + (accounts[key] || 0), 0);
 
   const cycleId = getCurrentCycleId(now);
@@ -325,7 +347,7 @@ export const computeProfileVariance = ({
     : 0;
 
   // Projected income remaining (income events for this profile's accounts, now → end of cycle)
-  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, endMs);
+  const incomeEvts = getIncomeEventsBetween(incomeEvents, now, endMs, accountRegistry);
   const projectedIncomeRemaining = incomeEvts
     .filter(e => profileAccounts.includes(e.accountKey))
     .reduce((sum, e) => sum + e.amountCents, 0);
@@ -344,6 +366,7 @@ export const computeProfileVariance = ({
     incomeEvents,
     daysAhead: 14,
     floorCents: yellowFloor,
+    accountRegistry,
   });
 
   const { dipsBelowFloor: dipsRed, triggerBillName: redTrigger } = findMinimumProjectedBalance({
@@ -353,6 +376,7 @@ export const computeProfileVariance = ({
     incomeEvents,
     daysAhead: 14,
     floorCents: 0,
+    accountRegistry,
   });
 
   // State classification: red > yellow > green

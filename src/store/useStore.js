@@ -41,6 +41,9 @@ const KEYS = {
   postPaydayActions: 'nova_v2_post_payday_actions',
   novaConfig: 'nova_v2_config',
   groceryDisciplineStreak: 'nova_v2_grocery_discipline_streak',
+  accountRegistry: 'nova_v2_account_registry',
+  businesses: 'nova_v2_businesses',
+  spendingBuckets: 'nova_v2_spending_buckets',
 };
 
 const initialState = {
@@ -99,8 +102,14 @@ const initialState = {
       { id: '2', accountKey: 'entSavings',    label: 'ENT Savings',    amountCents: 5000  },
       { id: '3', accountKey: 'entChecking',   label: 'ENT Checking',   amountCents: 31300 },
     ],
+    onboardingComplete: false,
+    userMode: null,
+    entrepreneurMode: false,
   },
   groceryDisciplineStreak: 0,
+  accountRegistry: [],
+  businesses: [],
+  spendingBuckets: [],
 };
 
 async function loadKey(key, fallback) {
@@ -164,6 +173,9 @@ const useStore = create((set, get) => ({
       postPaydayActions,
       novaConfig,
       groceryDisciplineStreak,
+      accountRegistry,
+      businesses,
+      spendingBuckets,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -196,6 +208,9 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.postPaydayActions, initialState.postPaydayActions),
       loadKey(KEYS.novaConfig, initialState.novaConfig),
       loadKey(KEYS.groceryDisciplineStreak, initialState.groceryDisciplineStreak),
+      loadKey(KEYS.accountRegistry, initialState.accountRegistry),
+      loadKey(KEYS.businesses, initialState.businesses),
+      loadKey(KEYS.spendingBuckets, initialState.spendingBuckets),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -210,6 +225,42 @@ const useStore = create((set, get) => ({
     // Migrate bills to V1.2 schema (idempotent — no-op for already-upgraded bills)
     const upgradedHouseholdBills = householdBills.map(b => upgradeBillIfNeeded(b, 'jointChecking'));
     const upgradedPersonalBills = personalBills.map(b => upgradeBillIfNeeded(b, 'entChecking'));
+
+    // Merge novaConfig with defaults so new fields are always present
+    const mergedNovaConfig = { ...initialState.novaConfig, ...novaConfig };
+
+    // Registry migration — runs once; guard: registry already populated
+    let finalAccountRegistry = accountRegistry;
+    let finalBusinesses = businesses;
+
+    if (finalAccountRegistry.length === 0) {
+      const mNow = Date.now();
+      finalAccountRegistry = [
+        { id: 'acc_joint_checking',    legacyKey: 'jointChecking',    name: 'Joint Checking',    type: 'checking', role: 'household', isActive: true, createdAt: mNow },
+        { id: 'acc_ent_checking',      legacyKey: 'entChecking',      name: 'ENT Checking',      type: 'checking', role: 'personal',  isActive: true, createdAt: mNow },
+        { id: 'acc_ent_savings',       legacyKey: 'entSavings',       name: 'ENT Savings',       type: 'savings',  role: 'personal',  isActive: true, createdAt: mNow },
+        { id: 'acc_venmo',             legacyKey: 'venmo',            name: 'Venmo',             type: 'digital',  role: 'personal',  isActive: true, createdAt: mNow },
+        { id: 'acc_cash',              legacyKey: 'cash',             name: 'Cash',              type: 'cash',     role: 'personal',  isActive: true, createdAt: mNow },
+        { id: 'acc_cleaning_checking', legacyKey: 'cleaningChecking', name: 'Cleaning Checking', type: 'checking', role: 'business',  isActive: true, createdAt: mNow },
+      ];
+      await AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(finalAccountRegistry));
+      if (onboardingComplete) {
+        // Existing user — mark wizard complete, infer mode from existing data
+        mergedNovaConfig.onboardingComplete = true;
+        mergedNovaConfig.userMode = 'partnered';
+        mergedNovaConfig.entrepreneurMode = true;
+        await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(mergedNovaConfig));
+      }
+    }
+
+    if (finalBusinesses.length === 0 && onboardingComplete) {
+      const mNow = Date.now();
+      finalBusinesses = [
+        { id: 'biz_legacy_massage',  name: 'Massage',      trackIncome: true, trackExpenses: true, trackMileage: false, isActive: true, createdAt: mNow },
+        { id: 'biz_legacy_cleaning', name: 'Cleaning LLC', trackIncome: true, trackExpenses: true, trackMileage: true,  isActive: true, createdAt: mNow },
+      ];
+      await AsyncStorage.setItem(KEYS.businesses, JSON.stringify(finalBusinesses));
+    }
 
     set({
       onboardingComplete,
@@ -241,8 +292,11 @@ const useStore = create((set, get) => ({
       groceryStreakWeeks,
       cleaningIncome,
       postPaydayActions,
-      novaConfig: { ...initialState.novaConfig, ...novaConfig },
+      novaConfig: mergedNovaConfig,
       groceryDisciplineStreak,
+      accountRegistry: finalAccountRegistry,
+      businesses: finalBusinesses,
+      spendingBuckets,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -850,6 +904,7 @@ const useStore = create((set, get) => ({
         massageIncome: state.massageIncome,
         massageExpenses: state.massageExpenses,
         cleaningExpenses: state.cleaningExpenses,
+        accountRegistry: state.accountRegistry,
         now,
       });
     }
@@ -1246,6 +1301,171 @@ const useStore = create((set, get) => ({
     const merged = { ...get().novaConfig, ...updates };
     set({ novaConfig: merged });
     await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(merged));
+  },
+
+  // Account registry
+  addAccount: async (account) => {
+    const id = account.id || `acc_${Date.now()}`;
+    const newEntry = { ...account, id, isActive: true, createdAt: Date.now() };
+    const registry = [...get().accountRegistry, newEntry];
+    const key = newEntry.legacyKey || id;
+    const accounts = { ...get().accounts };
+    if (accounts[key] === undefined) accounts[key] = newEntry.initialBalanceCents || 0;
+    set({ accountRegistry: registry, accounts });
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(registry)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(accounts)),
+    ]);
+    get().recomputeVariance();
+  },
+
+  editAccount: async (id, updates) => {
+    const registry = get().accountRegistry.map(a => a.id === id ? { ...a, ...updates } : a);
+    set({ accountRegistry: registry });
+    await AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(registry));
+    get().recomputeVariance();
+  },
+
+  archiveAccount: async (id) => {
+    const registry = get().accountRegistry.map(a => a.id === id ? { ...a, isActive: false } : a);
+    set({ accountRegistry: registry });
+    await AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(registry));
+    get().recomputeVariance();
+  },
+
+  getAccountById: (id) => get().accountRegistry.find(a => a.id === id) || null,
+
+  // Business registry
+  addBusiness: async (biz) => {
+    const id = biz.id || `biz_${Date.now()}`;
+    const newEntry = { ...biz, id, isActive: true, createdAt: Date.now() };
+    const businesses = [...get().businesses, newEntry];
+    set({ businesses });
+    await AsyncStorage.setItem(KEYS.businesses, JSON.stringify(businesses));
+  },
+
+  editBusiness: async (id, updates) => {
+    const businesses = get().businesses.map(b => b.id === id ? { ...b, ...updates } : b);
+    set({ businesses });
+    await AsyncStorage.setItem(KEYS.businesses, JSON.stringify(businesses));
+  },
+
+  archiveBusiness: async (id) => {
+    const businesses = get().businesses.map(b => b.id === id ? { ...b, isActive: false } : b);
+    set({ businesses });
+    await AsyncStorage.setItem(KEYS.businesses, JSON.stringify(businesses));
+  },
+
+  // Spending buckets
+  addBucket: async (bucket) => {
+    const id = bucket.id || `bucket_${Date.now()}`;
+    const newEntry = { ...bucket, id, createdAt: Date.now() };
+    const spendingBuckets = [...get().spendingBuckets, newEntry];
+    set({ spendingBuckets });
+    await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
+  },
+
+  editBucket: async (id, updates) => {
+    const spendingBuckets = get().spendingBuckets.map(b => b.id === id ? { ...b, ...updates } : b);
+    set({ spendingBuckets });
+    await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
+  },
+
+  removeBucket: async (id) => {
+    const spendingBuckets = get().spendingBuckets.filter(b => b.id !== id);
+    set({ spendingBuckets });
+    await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
+  },
+
+  // Wizard completion — writes full payload to store atomically
+  completeOnboarding: async (payload = {}) => {
+    const {
+      wizardAccounts = [],
+      wizardBusinesses = [],
+      bills = [],
+      buckets = [],
+      incomeConfig = {},
+      userMode = 'solo',
+      entrepreneurMode = false,
+      paycheckSplits = [],
+    } = payload;
+    const now = Date.now();
+    const mkId = (prefix) => `${prefix}_${now}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const registry = wizardAccounts.map(a => ({
+      ...a, id: a.id || mkId('acc'), isActive: true, createdAt: now,
+    }));
+
+    const accountBalances = { ...initialState.accounts };
+    for (const acc of registry) {
+      const key = acc.legacyKey || acc.id;
+      accountBalances[key] = acc.initialBalanceCents || 0;
+    }
+
+    const bizRegistry = wizardBusinesses.map(b => ({
+      ...b, id: b.id || mkId('biz'), isActive: true, createdAt: now,
+    }));
+
+    const householdAccountKeys = new Set(
+      registry.filter(a => a.role === 'household').map(a => a.legacyKey || a.id)
+    );
+    if (householdAccountKeys.size === 0) householdAccountKeys.add('jointChecking');
+
+    const mkBill = (b, defaultAcct) => ({
+      id: b.id || mkId('bill'), name: b.name, amountCents: b.amountCents || 0,
+      expectedDay: b.dueDay || b.expectedDay || 1, dueDay: b.dueDay || b.expectedDay || 1,
+      isAutoDraft: false, isActive: true,
+      lastPaidDate: null, lastPaidAmountCents: null, lastPaidMonth: null,
+      defaultAccountKey: b.defaultAccountKey || b.accountKey || defaultAcct, createdAt: now,
+    });
+    const newHouseholdBills = bills.filter(b => householdAccountKeys.has(b.defaultAccountKey || b.accountKey)).map(b => mkBill(b, 'jointChecking'));
+    const newPersonalBills  = bills.filter(b => !householdAccountKeys.has(b.defaultAccountKey || b.accountKey)).map(b => mkBill(b, 'entChecking'));
+
+    const incomeEvents = {
+      ...get().incomeEvents,
+      payFrequency: incomeConfig.payFrequency || 'biweekly',
+      nextPaycheckDate: incomeConfig.nextPaycheckDate || null,
+      paycheckAmountCents: incomeConfig.paycheckAmountCents || 0,
+      paycheckAmount: incomeConfig.paycheckAmountCents || 0,
+    };
+
+    const updatedNovaConfig = {
+      ...get().novaConfig,
+      onboardingComplete: true,
+      userMode,
+      entrepreneurMode,
+      paycheckSplits: paycheckSplits.length > 0 ? paycheckSplits : get().novaConfig.paycheckSplits,
+    };
+
+    const finalHouseholdBills = [...get().householdBills, ...newHouseholdBills];
+    const finalPersonalBills  = [...get().personalBills,  ...newPersonalBills];
+
+    set({
+      accountRegistry: registry,
+      businesses: bizRegistry,
+      spendingBuckets: buckets,
+      householdBills: finalHouseholdBills,
+      personalBills: finalPersonalBills,
+      accounts: accountBalances,
+      incomeEvents,
+      novaConfig: updatedNovaConfig,
+      onboardingComplete: true,
+    });
+
+    await Promise.all([
+      AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(registry)),
+      AsyncStorage.setItem(KEYS.businesses, JSON.stringify(bizRegistry)),
+      AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(buckets)),
+      AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(finalHouseholdBills)),
+      AsyncStorage.setItem(KEYS.personalBills, JSON.stringify(finalPersonalBills)),
+      AsyncStorage.setItem(KEYS.accounts, JSON.stringify(accountBalances)),
+      AsyncStorage.setItem(KEYS.incomeEvents, JSON.stringify(incomeEvents)),
+      AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(updatedNovaConfig)),
+      AsyncStorage.setItem(KEYS.onboardingComplete, JSON.stringify(true)),
+    ]);
+
+    get().awardXP(25);
+    get().recomputeVariance();
   },
 }));
 

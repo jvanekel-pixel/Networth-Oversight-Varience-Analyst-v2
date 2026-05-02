@@ -8,6 +8,7 @@ import {
   buildAccountCsv,
   buildMassageIncomeCsv,
   buildMassageExpenseCsv,
+  buildCleaningIncomeCsv,
   buildCleaningExpenseCsv,
   buildCleaningMileageCsv,
   validateImportJson,
@@ -105,10 +106,11 @@ export function useExport() {
 
   async function exportBusinessCsvs() {
     try {
-      const { massageIncome, massageExpenses, cleaningExpenses, cleaningMileage } = useStore.getState();
+      const { massageIncome, massageExpenses, cleaningIncome, cleaningExpenses, cleaningMileage } = useStore.getState();
       const files = [
         { name: 'massage_income', csv: buildMassageIncomeCsv(massageIncome || []) },
         { name: 'massage_expenses', csv: buildMassageExpenseCsv(massageExpenses || []) },
+        { name: 'cleaning_income', csv: buildCleaningIncomeCsv(cleaningIncome || []) },
         { name: 'cleaning_expenses', csv: buildCleaningExpenseCsv(cleaningExpenses || []) },
         { name: 'cleaning_mileage', csv: buildCleaningMileageCsv(cleaningMileage || []) },
       ];
