@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../config/theme.config';
 
-export default function CardOrderSheet({ visible, title, cards, currentOrder, onSave, onClose }) {
+export default function CardOrderSheet({ visible, title, cards, currentOrder, currentHidden, onSave, onClose }) {
   const [draft, setDraft] = useState([]);
+  const [draftHidden, setDraftHidden] = useState([]);
 
   useEffect(() => {
     if (visible) {
@@ -13,8 +14,9 @@ export default function CardOrderSheet({ visible, title, cards, currentOrder, on
         if (!ordered.includes(card.id)) ordered.push(card.id);
       }
       setDraft(ordered);
+      setDraftHidden(Array.isArray(currentHidden) ? [...currentHidden] : []);
     }
-  }, [visible, cards, currentOrder]);
+  }, [visible, cards, currentOrder, currentHidden]);
 
   const labels = Object.fromEntries((cards || []).map(c => [c.id, c.label]));
 
@@ -30,8 +32,14 @@ export default function CardOrderSheet({ visible, title, cards, currentOrder, on
     });
   }
 
+  function toggleHide(id) {
+    setDraftHidden((prev) =>
+      prev.includes(id) ? prev.filter(h => h !== id) : [...prev, id]
+    );
+  }
+
   async function handleSave() {
-    await onSave(draft);
+    await onSave(draft, draftHidden);
     onClose();
   }
 
@@ -41,18 +49,28 @@ export default function CardOrderSheet({ visible, title, cards, currentOrder, on
         <View style={styles.panel}>
           <Text style={styles.title}>{title || 'CUSTOMIZE CARD ORDER'}</Text>
           {draft.length === 0 && <Text style={styles.empty}>No reorderable cards are currently visible.</Text>}
-          {draft.map((id, idx) => (
-            <View key={id} style={styles.row}>
-              <Text style={styles.handle}>=</Text>
-              <Text style={styles.label}>{labels[id] || id}</Text>
-              <TouchableOpacity style={styles.moveBtn} onPress={() => move(id, -1)} disabled={idx === 0}>
-                <Text style={[styles.moveText, idx === 0 && styles.moveTextDisabled]}>UP</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.moveBtn} onPress={() => move(id, 1)} disabled={idx === draft.length - 1}>
-                <Text style={[styles.moveText, idx === draft.length - 1 && styles.moveTextDisabled]}>DOWN</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+          {draft.map((id, idx) => {
+            const isVariance = id === 'variance';
+            const isHidden = draftHidden.includes(id);
+            const upDisabled = idx === 0 || isVariance;
+            const downDisabled = idx === draft.length - 1 || isVariance;
+            return (
+              <View key={id} style={[styles.row, isHidden && styles.rowHidden]}>
+                <Text style={[styles.label, isHidden && styles.labelHidden]}>{labels[id] || id}</Text>
+                <TouchableOpacity style={styles.btn} onPress={() => move(id, -1)} disabled={upDisabled}>
+                  <Text style={[styles.btnText, upDisabled && styles.btnTextDisabled]}>UP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.btn} onPress={() => move(id, 1)} disabled={downDisabled}>
+                  <Text style={[styles.btnText, downDisabled && styles.btnTextDisabled]}>DOWN</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, isHidden ? styles.showBtn : styles.hideBtn]} onPress={() => toggleHide(id)}>
+                  <Text style={[styles.btnText, isHidden ? styles.showText : styles.hideText]}>
+                    {isHidden ? 'SHOW' : 'HIDE'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
               <Text style={styles.cancelText}>CANCEL</Text>
@@ -73,11 +91,16 @@ const styles = StyleSheet.create({
   title: { color: theme.accent, fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: theme.spacingMD },
   empty: { color: theme.textDim, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingMD },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: theme.spacingSM, borderTopWidth: 1, borderTopColor: theme.borderColorDim },
-  handle: { color: theme.textDim, width: 24, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary },
+  rowHidden: { opacity: 0.45 },
   label: { flex: 1, color: theme.textPrimary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
-  moveBtn: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingSM, paddingVertical: theme.spacingXS, marginLeft: theme.spacingXS },
-  moveText: { color: theme.accent, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
-  moveTextDisabled: { color: theme.textDim },
+  labelHidden: { color: theme.textDim },
+  btn: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingSM, paddingVertical: theme.spacingXS, marginLeft: theme.spacingXS },
+  hideBtn: { borderColor: theme.borderColorDim },
+  showBtn: { borderColor: theme.accent },
+  btnText: { color: theme.accent, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
+  btnTextDisabled: { color: theme.textDim },
+  hideText: { color: theme.textDim },
+  showText: { color: theme.accent },
   actions: { flexDirection: 'row', gap: theme.spacingMD, marginTop: theme.spacingLG },
   cancelBtn: { flex: 1, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center' },
   saveBtn: { flex: 1, borderWidth: 1, borderColor: theme.accent, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center', backgroundColor: theme.accentGlow },

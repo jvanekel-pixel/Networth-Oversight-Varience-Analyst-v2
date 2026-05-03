@@ -7,6 +7,7 @@ import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCentsShort, parseBillInput } from '../utils/currency';
 import DatePickerField from '../components/DatePickerField';
+import CardOrderSheet from '../components/settings/CardOrderSheet';
 
 function Section({ title, children }) {
   return (
@@ -81,10 +82,15 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const cleaningExpenses = useStore((s) => s.cleaningExpenses);
   const cleaningMileage = useStore((s) => s.cleaningMileage);
   const businessCardOrder = useStore((s) => s.businessCardOrder);
+  const businessHiddenCards = useStore((s) => s.businessHiddenCards);
+  const businessVariance = useStore((s) => s.varianceCache.business);
+  const updateBusinessCardOrder = useStore((s) => s.updateBusinessCardOrder);
+  const updateBusinessHiddenCards = useStore((s) => s.updateBusinessHiddenCards);
 
   const biz = (businesses || []).find((b) => b.id === businessId);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [cardOrderVisible, setCardOrderVisible] = useState(false);
 
   if (!biz) {
     return (
@@ -118,6 +124,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const monthExpenses = activeExpenses.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
 
   const activeBusinessCardIds = [
+    'variance',
     'business_balance',
     ...(biz.trackIncome ? ['income'] : []),
     ...(biz.trackExpenses ? ['expenses'] : []),
@@ -127,8 +134,31 @@ export default function BusinessDetailScreen({ route, navigation }) {
     ...(businessCardOrder || []).filter((id) => activeBusinessCardIds.includes(id)),
     ...activeBusinessCardIds.filter((id) => !(businessCardOrder || []).includes(id)),
   ];
+  const businessDisplayCards = [
+    { id: 'variance', label: 'Variance Summary' },
+    { id: 'business_balance', label: 'Business Summary' },
+    ...(biz.trackIncome ? [{ id: 'income', label: 'Income' }] : []),
+    ...(biz.trackExpenses ? [{ id: 'expenses', label: 'Expenses' }] : []),
+    ...(biz.trackMileage ? [{ id: 'mileage', label: 'Mileage' }] : []),
+  ];
 
   const renderBusinessCard = (id) => {
+    if (id === 'variance') {
+      if (!businessVariance) return null;
+      const bv = businessVariance;
+      const borderColor = bv.state === 'green' ? theme.statusPositive : bv.state === 'yellow' ? theme.statusWarning : bv.state === 'red' ? theme.statusDanger : theme.borderColorDim;
+      const bgColor = bv.state === 'green' ? theme.statusPositiveBg : bv.state === 'yellow' ? theme.statusWarningBg : bv.state === 'red' ? theme.statusDangerBg : theme.backgroundCard;
+      const varSign = bv.variance > 0 ? '+' : '';
+      const varColor = bv.variance > 0 ? theme.statusPositive : bv.variance < 0 ? theme.statusDanger : theme.textSecondary;
+      return (
+        <View style={[styles.varianceCard, { borderColor, backgroundColor: bgColor }]}>
+          <Text style={styles.varianceLabel}>BUSINESS VARIANCE</Text>
+          <Text style={styles.varianceBalance}>{formatCentsShort(bv.balance)}</Text>
+          <Text style={[styles.varianceAmt, { color: varColor }]}>{varSign}{formatCentsShort(bv.variance)}</Text>
+          <Text style={styles.varianceAnnotation}>{bv.annotation}</Text>
+        </View>
+      );
+    }
     if (id === 'business_balance') {
       return (
         <View style={styles.summaryRow}>
@@ -206,11 +236,19 @@ export default function BusinessDetailScreen({ route, navigation }) {
         <Text style={styles.title}>{biz.name.toUpperCase()}</Text>
       </View>
 
-      {orderedBusinessCards.map((id) => (
-        <React.Fragment key={id}>
-          {renderBusinessCard(id)}
-        </React.Fragment>
-      ))}
+      {orderedBusinessCards
+        .filter((id) => !(businessHiddenCards || []).includes(id))
+        .map((id) => (
+          <React.Fragment key={id}>
+            {renderBusinessCard(id)}
+          </React.Fragment>
+        ))}
+
+      {/* Card Order row */}
+      <TouchableOpacity style={styles.cardOrderRow} onPress={() => setCardOrderVisible(true)}>
+        <Text style={styles.cardOrderLabel}>Card Order</Text>
+        <Text style={styles.cardOrderChevron}>›</Text>
+      </TouchableOpacity>
 
       <AddEntryModal
         visible={showIncomeModal}
@@ -253,6 +291,18 @@ export default function BusinessDetailScreen({ route, navigation }) {
         }}
         onClose={() => setShowExpenseModal(false)}
       />
+      <CardOrderSheet
+        visible={cardOrderVisible}
+        title="BUSINESS CARD ORDER"
+        cards={businessDisplayCards}
+        currentOrder={businessCardOrder}
+        currentHidden={businessHiddenCards}
+        onSave={async (order, hidden) => {
+          await updateBusinessCardOrder(order);
+          await updateBusinessHiddenCards(hidden);
+        }}
+        onClose={() => setCardOrderVisible(false)}
+      />
     </ScrollView>
   );
 }
@@ -276,6 +326,14 @@ const styles = StyleSheet.create({
   entryLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, flex: 1 },
   entryAmt: { color: theme.textPrimary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, fontWeight: 'bold' },
   emptyNote: { color: theme.textDim, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, padding: 12, fontStyle: 'italic' },
+  varianceCard: { marginHorizontal: 16, marginBottom: 16, padding: theme.spacingLG, borderRadius: theme.borderRadiusMD, borderWidth: 2 },
+  varianceLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS },
+  varianceBalance: { color: theme.textPrimary, fontSize: theme.fontSizeXXL, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: 4 },
+  varianceAmt: { fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, marginBottom: 2 },
+  varianceAnnotation: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
+  cardOrderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: theme.spacingMD, marginTop: theme.spacingSM, borderTopWidth: 1, borderTopColor: theme.borderColorDim },
+  cardOrderLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
+  cardOrderChevron: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeLG },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.overlayBg },
   sheet: { backgroundColor: theme.backgroundSecondary, borderTopLeftRadius: theme.borderRadiusLG, borderTopRightRadius: theme.borderRadiusLG, padding: theme.spacingLG, gap: theme.spacingSM },
   sheetTitle: { color: theme.accent, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary, fontWeight: 'bold', letterSpacing: 2, marginBottom: theme.spacingSM },

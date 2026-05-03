@@ -47,9 +47,13 @@ const KEYS = {
   personalCardOrder: 'nova_v2_personal_card_order',
   householdCardOrder: 'nova_v2_household_card_order',
   businessCardOrder: 'nova_v2_business_card_order',
+  personalHiddenCards: 'nova_v2_personal_hidden_cards',
+  householdHiddenCards: 'nova_v2_household_hidden_cards',
+  businessHiddenCards: 'nova_v2_business_hidden_cards',
 };
 
 const DEFAULT_PERSONAL_CARD_ORDER = [
+  'variance',
   'accounts',
   'pay_cycle',
   'savings_goal',
@@ -61,6 +65,7 @@ const DEFAULT_PERSONAL_CARD_ORDER = [
 const PERSONAL_CARD_IDS = new Set(DEFAULT_PERSONAL_CARD_ORDER);
 
 const DEFAULT_HOUSEHOLD_CARD_ORDER = [
+  'variance',
   'joint_balance',
   'partner_deposit',
   'grocery',
@@ -71,6 +76,7 @@ const DEFAULT_HOUSEHOLD_CARD_ORDER = [
 const HOUSEHOLD_CARD_IDS = new Set(DEFAULT_HOUSEHOLD_CARD_ORDER);
 
 const DEFAULT_BUSINESS_CARD_ORDER = [
+  'variance',
   'business_balance',
   'income',
   'expenses',
@@ -143,6 +149,9 @@ const initialState = {
   personalCardOrder: DEFAULT_PERSONAL_CARD_ORDER,
   householdCardOrder: DEFAULT_HOUSEHOLD_CARD_ORDER,
   businessCardOrder: DEFAULT_BUSINESS_CARD_ORDER,
+  personalHiddenCards: [],
+  householdHiddenCards: [],
+  businessHiddenCards: [],
 };
 
 async function loadKey(key, fallback) {
@@ -242,6 +251,9 @@ const useStore = create((set, get) => ({
       personalCardOrder,
       householdCardOrder,
       businessCardOrder,
+      personalHiddenCards,
+      householdHiddenCards,
+      businessHiddenCards,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -280,6 +292,9 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.personalCardOrder, initialState.personalCardOrder),
       loadKey(KEYS.householdCardOrder, initialState.householdCardOrder),
       loadKey(KEYS.businessCardOrder, initialState.businessCardOrder),
+      loadKey(KEYS.personalHiddenCards, []),
+      loadKey(KEYS.householdHiddenCards, []),
+      loadKey(KEYS.businessHiddenCards, []),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -295,24 +310,24 @@ const useStore = create((set, get) => ({
     const upgradedHouseholdBills = householdBills.map(b => upgradeBillIfNeeded(b, 'jointChecking'));
     const upgradedPersonalBills = personalBills.map(b => upgradeBillIfNeeded(b, 'entChecking'));
     const upgradedSpendingBuckets = (spendingBuckets || []).map(upgradeBucketIfNeeded);
-    const resolvedPersonalCardOrder = Array.isArray(personalCardOrder) && personalCardOrder.length > 0
-      ? [
-        ...personalCardOrder.filter((id) => PERSONAL_CARD_IDS.has(id)),
-        ...DEFAULT_PERSONAL_CARD_ORDER.filter((id) => !personalCardOrder.includes(id)),
-      ]
-      : DEFAULT_PERSONAL_CARD_ORDER;
-    const resolvedHouseholdCardOrder = Array.isArray(householdCardOrder) && householdCardOrder.length > 0
-      ? [
-        ...householdCardOrder.filter((id) => HOUSEHOLD_CARD_IDS.has(id)),
-        ...DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => !householdCardOrder.includes(id)),
-      ]
-      : DEFAULT_HOUSEHOLD_CARD_ORDER;
-    const resolvedBusinessCardOrder = Array.isArray(businessCardOrder) && businessCardOrder.length > 0
-      ? [
-        ...businessCardOrder.filter((id) => BUSINESS_CARD_IDS.has(id)),
-        ...DEFAULT_BUSINESS_CARD_ORDER.filter((id) => !businessCardOrder.includes(id)),
-      ]
-      : DEFAULT_BUSINESS_CARD_ORDER;
+    const resolvedPersonalCardOrder = (() => {
+      if (!Array.isArray(personalCardOrder) || personalCardOrder.length === 0) return DEFAULT_PERSONAL_CARD_ORDER;
+      const rest = personalCardOrder.filter((id) => PERSONAL_CARD_IDS.has(id) && id !== 'variance');
+      const missing = DEFAULT_PERSONAL_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+      return ['variance', ...rest, ...missing];
+    })();
+    const resolvedHouseholdCardOrder = (() => {
+      if (!Array.isArray(householdCardOrder) || householdCardOrder.length === 0) return DEFAULT_HOUSEHOLD_CARD_ORDER;
+      const rest = householdCardOrder.filter((id) => HOUSEHOLD_CARD_IDS.has(id) && id !== 'variance');
+      const missing = DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+      return ['variance', ...rest, ...missing];
+    })();
+    const resolvedBusinessCardOrder = (() => {
+      if (!Array.isArray(businessCardOrder) || businessCardOrder.length === 0) return DEFAULT_BUSINESS_CARD_ORDER;
+      const rest = businessCardOrder.filter((id) => BUSINESS_CARD_IDS.has(id) && id !== 'variance');
+      const missing = DEFAULT_BUSINESS_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+      return ['variance', ...rest, ...missing];
+    })();
 
     // Merge novaConfig with defaults so new fields are always present
     const mergedNovaConfig = {
@@ -392,6 +407,9 @@ const useStore = create((set, get) => ({
       personalCardOrder: resolvedPersonalCardOrder,
       householdCardOrder: resolvedHouseholdCardOrder,
       businessCardOrder: resolvedBusinessCardOrder,
+      personalHiddenCards: Array.isArray(personalHiddenCards) ? personalHiddenCards : [],
+      householdHiddenCards: Array.isArray(householdHiddenCards) ? householdHiddenCards : [],
+      businessHiddenCards: Array.isArray(businessHiddenCards) ? businessHiddenCards : [],
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
@@ -400,6 +418,9 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.personalCardOrder, JSON.stringify(resolvedPersonalCardOrder)),
       AsyncStorage.setItem(KEYS.householdCardOrder, JSON.stringify(resolvedHouseholdCardOrder)),
       AsyncStorage.setItem(KEYS.businessCardOrder, JSON.stringify(resolvedBusinessCardOrder)),
+      AsyncStorage.setItem(KEYS.personalHiddenCards, JSON.stringify(Array.isArray(personalHiddenCards) ? personalHiddenCards : [])),
+      AsyncStorage.setItem(KEYS.householdHiddenCards, JSON.stringify(Array.isArray(householdHiddenCards) ? householdHiddenCards : [])),
+      AsyncStorage.setItem(KEYS.businessHiddenCards, JSON.stringify(Array.isArray(businessHiddenCards) ? businessHiddenCards : [])),
     ]);
   },
 
@@ -1492,40 +1513,49 @@ const useStore = create((set, get) => ({
   },
 
   updateCardOrder: async (order) => {
-    const cleaned = Array.isArray(order) && order.length > 0
-      ? [
-        ...order.filter((id) => PERSONAL_CARD_IDS.has(id)),
-        ...DEFAULT_PERSONAL_CARD_ORDER.filter((id) => !order.includes(id)),
-      ]
-      : DEFAULT_PERSONAL_CARD_ORDER;
+    await get().updatePersonalCardOrder(order);
+  },
+
+  updatePersonalCardOrder: async (order) => {
+    const rest = (order || []).filter((id) => PERSONAL_CARD_IDS.has(id) && id !== 'variance');
+    const missing = DEFAULT_PERSONAL_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+    const cleaned = ['variance', ...rest, ...missing];
     set({ personalCardOrder: cleaned });
     await AsyncStorage.setItem(KEYS.personalCardOrder, JSON.stringify(cleaned));
   },
 
-  updatePersonalCardOrder: async (order) => {
-    await get().updateCardOrder(order);
-  },
-
   updateHouseholdCardOrder: async (order) => {
-    const cleaned = Array.isArray(order) && order.length > 0
-      ? [
-        ...order.filter((id) => HOUSEHOLD_CARD_IDS.has(id)),
-        ...DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => !order.includes(id)),
-      ]
-      : DEFAULT_HOUSEHOLD_CARD_ORDER;
+    const rest = (order || []).filter((id) => HOUSEHOLD_CARD_IDS.has(id) && id !== 'variance');
+    const missing = DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+    const cleaned = ['variance', ...rest, ...missing];
     set({ householdCardOrder: cleaned });
     await AsyncStorage.setItem(KEYS.householdCardOrder, JSON.stringify(cleaned));
   },
 
   updateBusinessCardOrder: async (order) => {
-    const cleaned = Array.isArray(order) && order.length > 0
-      ? [
-        ...order.filter((id) => BUSINESS_CARD_IDS.has(id)),
-        ...DEFAULT_BUSINESS_CARD_ORDER.filter((id) => !order.includes(id)),
-      ]
-      : DEFAULT_BUSINESS_CARD_ORDER;
+    const rest = (order || []).filter((id) => BUSINESS_CARD_IDS.has(id) && id !== 'variance');
+    const missing = DEFAULT_BUSINESS_CARD_ORDER.filter((id) => id !== 'variance' && !rest.includes(id));
+    const cleaned = ['variance', ...rest, ...missing];
     set({ businessCardOrder: cleaned });
     await AsyncStorage.setItem(KEYS.businessCardOrder, JSON.stringify(cleaned));
+  },
+
+  updatePersonalHiddenCards: async (hidden) => {
+    const cleaned = Array.isArray(hidden) ? hidden.filter((id) => PERSONAL_CARD_IDS.has(id)) : [];
+    set({ personalHiddenCards: cleaned });
+    await AsyncStorage.setItem(KEYS.personalHiddenCards, JSON.stringify(cleaned));
+  },
+
+  updateHouseholdHiddenCards: async (hidden) => {
+    const cleaned = Array.isArray(hidden) ? hidden.filter((id) => HOUSEHOLD_CARD_IDS.has(id)) : [];
+    set({ householdHiddenCards: cleaned });
+    await AsyncStorage.setItem(KEYS.householdHiddenCards, JSON.stringify(cleaned));
+  },
+
+  updateBusinessHiddenCards: async (hidden) => {
+    const cleaned = Array.isArray(hidden) ? hidden.filter((id) => BUSINESS_CARD_IDS.has(id)) : [];
+    set({ businessHiddenCards: cleaned });
+    await AsyncStorage.setItem(KEYS.businessHiddenCards, JSON.stringify(cleaned));
   },
 
   // Wizard completion — writes full payload to store atomically

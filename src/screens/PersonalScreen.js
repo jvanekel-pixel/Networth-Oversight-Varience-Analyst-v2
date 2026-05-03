@@ -8,6 +8,7 @@ import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, Edi
 import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
 import GroceryBudgetCard from '../components/GroceryBudgetCard';
 import SavingsGoalCard from '../components/SavingsGoalCard';
+import CardOrderSheet from '../components/settings/CardOrderSheet';
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -162,6 +163,9 @@ export default function PersonalScreen() {
     accountRegistry,
     spendingBuckets,
     personalCardOrder,
+    personalHiddenCards,
+    updatePersonalCardOrder,
+    updatePersonalHiddenCards,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -199,6 +203,7 @@ export default function PersonalScreen() {
   const [editingTx, setEditingTx] = useState(null);
   const [activityMenuTx, setActivityMenuTx] = useState(null);
   const [editingMassageIncome, setEditingMassageIncome] = useState(null);
+  const [cardOrderVisible, setCardOrderVisible] = useState(false);
 
   const handleDeleteBill = (billId) => {
     Alert.alert('Delete Subscription', 'Remove this recurring subscription?', [
@@ -253,12 +258,22 @@ export default function PersonalScreen() {
   const savingsGoalVisible = !!(savingsGoal?.targetCents > 0);
   const isSoloGroceryVisible = novaConfig?.userMode === 'solo' && hasGroceriesBucket;
   const activeCardIds = [
+    'variance',
     'accounts',
     'pay_cycle',
     ...(savingsGoalVisible ? ['savings_goal'] : []),
     'bills',
     ...(isSoloGroceryVisible ? ['grocery'] : []),
     'recent_activity',
+  ];
+  const personalDisplayCards = [
+    { id: 'variance', label: 'Variance Summary' },
+    { id: 'accounts', label: 'Account Balances' },
+    { id: 'pay_cycle', label: 'Pay Cycle' },
+    ...(savingsGoalVisible ? [{ id: 'savings_goal', label: 'Savings Goal' }] : []),
+    { id: 'bills', label: 'Bills & Subscriptions' },
+    ...(isSoloGroceryVisible ? [{ id: 'grocery', label: 'Grocery Budget' }] : []),
+    { id: 'recent_activity', label: 'Recent Activity' },
   ];
   const orderedPersonalCards = [
     ...(personalCardOrder || []).filter((id) => activeCardIds.includes(id)),
@@ -342,6 +357,22 @@ export default function PersonalScreen() {
   );
 
   const renderPersonalCard = (id) => {
+    if (id === 'variance') {
+      if (!personalVariance) return null;
+      const pv = personalVariance;
+      const borderColor = pv.state === 'green' ? theme.statusPositive : pv.state === 'yellow' ? theme.statusWarning : pv.state === 'red' ? theme.statusDanger : theme.borderColorDim;
+      const bgColor = pv.state === 'green' ? theme.statusPositiveBg : pv.state === 'yellow' ? theme.statusWarningBg : pv.state === 'red' ? theme.statusDangerBg : theme.backgroundCard;
+      const varSign = pv.variance > 0 ? '+' : '';
+      const varColor = pv.variance > 0 ? theme.statusPositive : pv.variance < 0 ? theme.statusDanger : theme.textSecondary;
+      return (
+        <View style={[styles.varianceCard, { borderColor, backgroundColor: bgColor }]}>
+          <Text style={styles.varianceLabel}>PERSONAL VARIANCE</Text>
+          <Text style={styles.varianceBalance}>{formatCentsShort(pv.balance)}</Text>
+          <Text style={[styles.varianceAmt, { color: varColor }]}>{varSign}{formatCentsShort(pv.variance)}</Text>
+          <Text style={styles.varianceAnnotation}>{pv.annotation}</Text>
+        </View>
+      );
+    }
     if (id === 'accounts') {
       return (
         <>
@@ -418,23 +449,6 @@ export default function PersonalScreen() {
         <Text style={styles.screenSubtitle}>Personal Accounts + Pay Cycle</Text>
       </View>
 
-      {/* 1b. Personal variance card */}
-      {personalVariance && (() => {
-        const pv = personalVariance;
-        const borderColor = pv.state === 'green' ? theme.statusPositive : pv.state === 'yellow' ? theme.statusWarning : pv.state === 'red' ? theme.statusDanger : theme.borderColorDim;
-        const bgColor = pv.state === 'green' ? theme.statusPositiveBg : pv.state === 'yellow' ? theme.statusWarningBg : pv.state === 'red' ? theme.statusDangerBg : theme.backgroundCard;
-        const varSign = pv.variance > 0 ? '+' : '';
-        const varColor = pv.variance > 0 ? theme.statusPositive : pv.variance < 0 ? theme.statusDanger : theme.textSecondary;
-        return (
-          <View style={[styles.varianceCard, { borderColor, backgroundColor: bgColor }]}>
-            <Text style={styles.varianceLabel}>PERSONAL VARIANCE</Text>
-            <Text style={styles.varianceBalance}>{formatCentsShort(pv.balance)}</Text>
-            <Text style={[styles.varianceAmt, { color: varColor }]}>{varSign}{formatCentsShort(pv.variance)}</Text>
-            <Text style={styles.varianceAnnotation}>{pv.annotation}</Text>
-          </View>
-        );
-      })()}
-
       {/* Floor warnings */}
       {personalWarnings.length > 0 && (
         <View style={styles.warningCard}>
@@ -446,11 +460,19 @@ export default function PersonalScreen() {
         </View>
       )}
 
-      {orderedPersonalCards.map((id) => (
-        <React.Fragment key={id}>
-          {renderPersonalCard(id)}
-        </React.Fragment>
-      ))}
+      {orderedPersonalCards
+        .filter((id) => !(personalHiddenCards || []).includes(id))
+        .map((id) => (
+          <React.Fragment key={id}>
+            {renderPersonalCard(id)}
+          </React.Fragment>
+        ))}
+
+      {/* Card Order row */}
+      <TouchableOpacity style={styles.cardOrderRow} onPress={() => setCardOrderVisible(true)}>
+        <Text style={styles.cardOrderLabel}>Card Order</Text>
+        <Text style={styles.cardOrderChevron}>›</Text>
+      </TouchableOpacity>
 
       {/* Activity action menu */}
       <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
@@ -564,6 +586,18 @@ export default function PersonalScreen() {
         entry={editingMassageIncome}
         onClose={() => setEditingMassageIncome(null)}
         onConfirm={(record) => { if (editingMassageIncome) { editMassageIncome(editingMassageIncome.id, record); setEditingMassageIncome(null); } }}
+      />
+      <CardOrderSheet
+        visible={cardOrderVisible}
+        title="PERSONAL CARD ORDER"
+        cards={personalDisplayCards}
+        currentOrder={personalCardOrder}
+        currentHidden={personalHiddenCards}
+        onSave={async (order, hidden) => {
+          await updatePersonalCardOrder(order);
+          await updatePersonalHiddenCards(hidden);
+        }}
+        onClose={() => setCardOrderVisible(false)}
       />
     </ScrollView>
   );
@@ -941,6 +975,9 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizeSM,
     fontFamily: theme.fontPrimary,
   },
+  cardOrderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacingMD, paddingVertical: theme.spacingMD, marginTop: theme.spacingSM, borderTopWidth: 1, borderTopColor: theme.borderColorDim },
+  cardOrderLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
+  cardOrderChevron: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeLG },
   splitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacingXS },
   splitLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, flex: 1 },
   splitInput: { backgroundColor: theme.backgroundCard, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, width: 90, textAlign: 'right' },

@@ -6,6 +6,7 @@ import { formatCents, formatCentsShort, parseBillInput } from '../utils/currency
 import { getPartnerDepositDate, formatDate, timeAgo } from '../utils/dates';
 import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 import GroceryBudgetCard from '../components/GroceryBudgetCard';
+import CardOrderSheet from '../components/settings/CardOrderSheet';
 
 
 function ordinalDay(day) {
@@ -64,6 +65,10 @@ export default function HouseholdScreen() {
   const accountRegistry = useStore((s) => s.accountRegistry);
   const spendingBuckets = useStore((s) => s.spendingBuckets);
   const householdCardOrder = useStore((s) => s.householdCardOrder);
+  const householdHiddenCards = useStore((s) => s.householdHiddenCards);
+  const householdVariance = useStore((s) => s.varianceCache.household);
+  const updateHouseholdCardOrder = useStore((s) => s.updateHouseholdCardOrder);
+  const updateHouseholdHiddenCards = useStore((s) => s.updateHouseholdHiddenCards);
   const isPartnered = userMode === 'partnered';
   const hasGroceriesBucket = (spendingBuckets || []).some((b) => b.isActive !== false && b.type === 'groceries');
   const householdAccount = (accountRegistry || []).find(a => a.isActive !== false && a.role === 'household');
@@ -97,6 +102,7 @@ export default function HouseholdScreen() {
   const [editingBill, setEditingBill] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
   const [activityMenuTx, setActivityMenuTx] = useState(null);
+  const [cardOrderVisible, setCardOrderVisible] = useState(false);
   const handleDeleteBill = (billId) => {
     Alert.alert('Delete Bill', 'Remove this bill from your household?', [
       { text: 'Cancel', style: 'cancel' },
@@ -120,11 +126,20 @@ export default function HouseholdScreen() {
     : [];
 
   const activeHouseholdCardIds = [
+    'variance',
     'joint_balance',
     ...(isPartnered ? ['partner_deposit'] : []),
     ...(isPartnered && hasGroceriesBucket ? ['grocery'] : []),
     ...(isPartnered ? ['bills'] : []),
     ...(isPartnered ? ['recent_activity'] : []),
+  ];
+  const householdDisplayCards = [
+    { id: 'variance', label: 'Variance Summary' },
+    { id: 'joint_balance', label: 'Shared Account' },
+    { id: 'partner_deposit', label: 'Partner Deposit' },
+    ...(hasGroceriesBucket ? [{ id: 'grocery', label: 'Grocery Budget' }] : []),
+    { id: 'bills', label: 'Household Bills' },
+    { id: 'recent_activity', label: 'Recent Activity' },
   ];
   const orderedHouseholdCards = [
     ...(householdCardOrder || []).filter((id) => activeHouseholdCardIds.includes(id)),
@@ -167,6 +182,22 @@ export default function HouseholdScreen() {
   };
 
   const renderHouseholdCard = (id) => {
+    if (id === 'variance') {
+      if (!householdVariance) return null;
+      const hv = householdVariance;
+      const borderColor = hv.state === 'green' ? theme.statusPositive : hv.state === 'yellow' ? theme.statusWarning : hv.state === 'red' ? theme.statusDanger : theme.borderColorDim;
+      const bgColor = hv.state === 'green' ? theme.statusPositiveBg : hv.state === 'yellow' ? theme.statusWarningBg : hv.state === 'red' ? theme.statusDangerBg : theme.backgroundCard;
+      const varSign = hv.variance > 0 ? '+' : '';
+      const varColor = hv.variance > 0 ? theme.statusPositive : hv.variance < 0 ? theme.statusDanger : theme.textSecondary;
+      return (
+        <View style={[styles.varianceCard, { borderColor, backgroundColor: bgColor }]}>
+          <Text style={styles.varianceLabel}>HOUSEHOLD VARIANCE</Text>
+          <Text style={styles.varianceBalance}>{formatCentsShort(hv.balance)}</Text>
+          <Text style={[styles.varianceAmt, { color: varColor }]}>{varSign}{formatCentsShort(hv.variance)}</Text>
+          <Text style={styles.varianceAnnotation}>{hv.annotation}</Text>
+        </View>
+      );
+    }
     if (id === 'joint_balance') {
       return (
         <Card>
@@ -290,11 +321,21 @@ export default function HouseholdScreen() {
       </View>
 
       {/* Ordered cards */}
-      {orderedHouseholdCards.map((id) => (
-        <React.Fragment key={id}>
-          {renderHouseholdCard(id)}
-        </React.Fragment>
-      ))}
+      {orderedHouseholdCards
+        .filter((id) => !(householdHiddenCards || []).includes(id))
+        .map((id) => (
+          <React.Fragment key={id}>
+            {renderHouseholdCard(id)}
+          </React.Fragment>
+        ))}
+
+      {/* Card Order row */}
+      {isPartnered && (
+        <TouchableOpacity style={styles.cardOrderRow} onPress={() => setCardOrderVisible(true)}>
+          <Text style={styles.cardOrderLabel}>Card Order</Text>
+          <Text style={styles.cardOrderChevron}>›</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Floor warnings — outside order loop */}
       {isPartnered && jointWarnings.length > 0 && (
@@ -385,6 +426,18 @@ export default function HouseholdScreen() {
         transaction={editingTx}
         onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
         onClose={() => setEditingTx(null)}
+      />
+      <CardOrderSheet
+        visible={cardOrderVisible}
+        title="HOUSEHOLD CARD ORDER"
+        cards={householdDisplayCards}
+        currentOrder={householdCardOrder}
+        currentHidden={householdHiddenCards}
+        onSave={async (order, hidden) => {
+          await updateHouseholdCardOrder(order);
+          await updateHouseholdHiddenCards(hidden);
+        }}
+        onClose={() => setCardOrderVisible(false)}
       />
     </ScrollView>
   );
@@ -635,6 +688,14 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizeMD,
     fontWeight: 'bold',
   },
+  varianceCard: { padding: theme.spacingLG, borderRadius: theme.borderRadiusMD, borderWidth: 2, marginBottom: theme.spacingMD },
+  varianceLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS },
+  varianceBalance: { color: theme.textPrimary, fontSize: theme.fontSizeXXL, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: 4 },
+  varianceAmt: { fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, marginBottom: 2 },
+  varianceAnnotation: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
+  cardOrderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacingMD, paddingVertical: theme.spacingMD, marginTop: theme.spacingSM, borderTopWidth: 1, borderTopColor: theme.borderColorDim },
+  cardOrderLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
+  cardOrderChevron: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeLG },
   // Modal styles
   backdrop: {
     flex: 1,
