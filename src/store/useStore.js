@@ -45,6 +45,8 @@ const KEYS = {
   businesses: 'nova_v2_businesses',
   spendingBuckets: 'nova_v2_spending_buckets',
   personalCardOrder: 'nova_v2_personal_card_order',
+  householdCardOrder: 'nova_v2_household_card_order',
+  businessCardOrder: 'nova_v2_business_card_order',
 };
 
 const DEFAULT_PERSONAL_CARD_ORDER = [
@@ -52,10 +54,30 @@ const DEFAULT_PERSONAL_CARD_ORDER = [
   'pay_cycle',
   'savings_goal',
   'bills',
+  'grocery',
   'recent_activity',
 ];
 
 const PERSONAL_CARD_IDS = new Set(DEFAULT_PERSONAL_CARD_ORDER);
+
+const DEFAULT_HOUSEHOLD_CARD_ORDER = [
+  'joint_balance',
+  'partner_deposit',
+  'grocery',
+  'bills',
+  'recent_activity',
+];
+
+const HOUSEHOLD_CARD_IDS = new Set(DEFAULT_HOUSEHOLD_CARD_ORDER);
+
+const DEFAULT_BUSINESS_CARD_ORDER = [
+  'business_balance',
+  'income',
+  'expenses',
+  'mileage',
+];
+
+const BUSINESS_CARD_IDS = new Set(DEFAULT_BUSINESS_CARD_ORDER);
 
 const initialState = {
   onboardingComplete: false,
@@ -119,6 +141,8 @@ const initialState = {
   businesses: [],
   spendingBuckets: [],
   personalCardOrder: DEFAULT_PERSONAL_CARD_ORDER,
+  householdCardOrder: DEFAULT_HOUSEHOLD_CARD_ORDER,
+  businessCardOrder: DEFAULT_BUSINESS_CARD_ORDER,
 };
 
 async function loadKey(key, fallback) {
@@ -216,6 +240,8 @@ const useStore = create((set, get) => ({
       businesses,
       spendingBuckets,
       personalCardOrder,
+      householdCardOrder,
+      businessCardOrder,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -252,6 +278,8 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.businesses, initialState.businesses),
       loadKey(KEYS.spendingBuckets, initialState.spendingBuckets),
       loadKey(KEYS.personalCardOrder, initialState.personalCardOrder),
+      loadKey(KEYS.householdCardOrder, initialState.householdCardOrder),
+      loadKey(KEYS.businessCardOrder, initialState.businessCardOrder),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -273,6 +301,18 @@ const useStore = create((set, get) => ({
         ...DEFAULT_PERSONAL_CARD_ORDER.filter((id) => !personalCardOrder.includes(id)),
       ]
       : DEFAULT_PERSONAL_CARD_ORDER;
+    const resolvedHouseholdCardOrder = Array.isArray(householdCardOrder) && householdCardOrder.length > 0
+      ? [
+        ...householdCardOrder.filter((id) => HOUSEHOLD_CARD_IDS.has(id)),
+        ...DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => !householdCardOrder.includes(id)),
+      ]
+      : DEFAULT_HOUSEHOLD_CARD_ORDER;
+    const resolvedBusinessCardOrder = Array.isArray(businessCardOrder) && businessCardOrder.length > 0
+      ? [
+        ...businessCardOrder.filter((id) => BUSINESS_CARD_IDS.has(id)),
+        ...DEFAULT_BUSINESS_CARD_ORDER.filter((id) => !businessCardOrder.includes(id)),
+      ]
+      : DEFAULT_BUSINESS_CARD_ORDER;
 
     // Merge novaConfig with defaults so new fields are always present
     const mergedNovaConfig = {
@@ -350,12 +390,16 @@ const useStore = create((set, get) => ({
       businesses: finalBusinesses,
       spendingBuckets: upgradedSpendingBuckets,
       personalCardOrder: resolvedPersonalCardOrder,
+      householdCardOrder: resolvedHouseholdCardOrder,
+      businessCardOrder: resolvedBusinessCardOrder,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
       AsyncStorage.setItem(KEYS.personalBills, JSON.stringify(upgradedPersonalBills)),
       AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(upgradedSpendingBuckets)),
       AsyncStorage.setItem(KEYS.personalCardOrder, JSON.stringify(resolvedPersonalCardOrder)),
+      AsyncStorage.setItem(KEYS.householdCardOrder, JSON.stringify(resolvedHouseholdCardOrder)),
+      AsyncStorage.setItem(KEYS.businessCardOrder, JSON.stringify(resolvedBusinessCardOrder)),
     ]);
   },
 
@@ -1460,6 +1504,28 @@ const useStore = create((set, get) => ({
 
   updatePersonalCardOrder: async (order) => {
     await get().updateCardOrder(order);
+  },
+
+  updateHouseholdCardOrder: async (order) => {
+    const cleaned = Array.isArray(order) && order.length > 0
+      ? [
+        ...order.filter((id) => HOUSEHOLD_CARD_IDS.has(id)),
+        ...DEFAULT_HOUSEHOLD_CARD_ORDER.filter((id) => !order.includes(id)),
+      ]
+      : DEFAULT_HOUSEHOLD_CARD_ORDER;
+    set({ householdCardOrder: cleaned });
+    await AsyncStorage.setItem(KEYS.householdCardOrder, JSON.stringify(cleaned));
+  },
+
+  updateBusinessCardOrder: async (order) => {
+    const cleaned = Array.isArray(order) && order.length > 0
+      ? [
+        ...order.filter((id) => BUSINESS_CARD_IDS.has(id)),
+        ...DEFAULT_BUSINESS_CARD_ORDER.filter((id) => !order.includes(id)),
+      ]
+      : DEFAULT_BUSINESS_CARD_ORDER;
+    set({ businessCardOrder: cleaned });
+    await AsyncStorage.setItem(KEYS.businessCardOrder, JSON.stringify(cleaned));
   },
 
   // Wizard completion — writes full payload to store atomically

@@ -80,6 +80,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const cleaningIncome = useStore((s) => s.cleaningIncome);
   const cleaningExpenses = useStore((s) => s.cleaningExpenses);
   const cleaningMileage = useStore((s) => s.cleaningMileage);
+  const businessCardOrder = useStore((s) => s.businessCardOrder);
 
   const biz = (businesses || []).find((b) => b.id === businessId);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
@@ -116,33 +117,40 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const monthIncome = activeIncome.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
   const monthExpenses = activeExpenses.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtn}>← BACK</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>{biz.name.toUpperCase()}</Text>
-      </View>
+  const activeBusinessCardIds = [
+    'business_balance',
+    ...(biz.trackIncome ? ['income'] : []),
+    ...(biz.trackExpenses ? ['expenses'] : []),
+    ...(biz.trackMileage ? ['mileage'] : []),
+  ];
+  const orderedBusinessCards = [
+    ...(businessCardOrder || []).filter((id) => activeBusinessCardIds.includes(id)),
+    ...activeBusinessCardIds.filter((id) => !(businessCardOrder || []).includes(id)),
+  ];
 
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryLabel}>THIS MONTH</Text>
-          <Text style={[styles.summaryAmt, { color: monthIncome - monthExpenses >= 0 ? theme.statusPositive : theme.statusDanger }]}>
-            {monthIncome - monthExpenses >= 0 ? '+' : ''}{formatCentsShort(monthIncome - monthExpenses)}
-          </Text>
+  const renderBusinessCard = (id) => {
+    if (id === 'business_balance') {
+      return (
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>THIS MONTH</Text>
+            <Text style={[styles.summaryAmt, { color: monthIncome - monthExpenses >= 0 ? theme.statusPositive : theme.statusDanger }]}>
+              {monthIncome - monthExpenses >= 0 ? '+' : ''}{formatCentsShort(monthIncome - monthExpenses)}
+            </Text>
+          </View>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>INCOME</Text>
+            <Text style={[styles.summaryAmt, { color: theme.statusPositive }]}>{formatCentsShort(totalIncome)}</Text>
+          </View>
+          <View style={styles.summaryCell}>
+            <Text style={styles.summaryLabel}>EXPENSES</Text>
+            <Text style={[styles.summaryAmt, { color: theme.statusDanger }]}>{formatCentsShort(totalExpenses)}</Text>
+          </View>
         </View>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryLabel}>INCOME</Text>
-          <Text style={[styles.summaryAmt, { color: theme.statusPositive }]}>{formatCentsShort(totalIncome)}</Text>
-        </View>
-        <View style={styles.summaryCell}>
-          <Text style={styles.summaryLabel}>EXPENSES</Text>
-          <Text style={[styles.summaryAmt, { color: theme.statusDanger }]}>{formatCentsShort(totalExpenses)}</Text>
-        </View>
-      </View>
-
-      {biz.trackIncome && (
+      );
+    }
+    if (id === 'income') {
+      return (
         <Section title="INCOME">
           <TouchableOpacity style={styles.addRowBtn} onPress={() => setShowIncomeModal(true)}>
             <Text style={styles.addRowBtnText}>+ ADD INCOME</Text>
@@ -155,9 +163,10 @@ export default function BusinessDetailScreen({ route, navigation }) {
           ))}
           {activeIncome.length === 0 && <Text style={styles.emptyNote}>No income recorded yet.</Text>}
         </Section>
-      )}
-
-      {biz.trackExpenses && (
+      );
+    }
+    if (id === 'expenses') {
+      return (
         <Section title="EXPENSES">
           <TouchableOpacity style={styles.addRowBtn} onPress={() => setShowExpenseModal(true)}>
             <Text style={styles.addRowBtnText}>+ ADD EXPENSE</Text>
@@ -170,9 +179,10 @@ export default function BusinessDetailScreen({ route, navigation }) {
           ))}
           {activeExpenses.length === 0 && <Text style={styles.emptyNote}>No expenses recorded yet.</Text>}
         </Section>
-      )}
-
-      {biz.trackMileage && (
+      );
+    }
+    if (id === 'mileage') {
+      return (
         <Section title={`MILEAGE (${totalMileage.toFixed(1)} mi total)`}>
           {activeMileage.slice(0, 10).map((r, i) => (
             <View key={r.id || i} style={styles.entryRow}>
@@ -182,7 +192,25 @@ export default function BusinessDetailScreen({ route, navigation }) {
           ))}
           {activeMileage.length === 0 && <Text style={styles.emptyNote}>No mileage recorded yet.</Text>}
         </Section>
-      )}
+      );
+    }
+    return null;
+  };
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backBtn}>← BACK</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{biz.name.toUpperCase()}</Text>
+      </View>
+
+      {orderedBusinessCards.map((id) => (
+        <React.Fragment key={id}>
+          {renderBusinessCard(id)}
+        </React.Fragment>
+      ))}
 
       <AddEntryModal
         visible={showIncomeModal}

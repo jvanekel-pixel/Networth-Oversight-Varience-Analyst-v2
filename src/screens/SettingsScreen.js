@@ -84,7 +84,11 @@ function SegmentedControl({ options, value, onChange }) {
 export default function SettingsScreen() {
   const {
     incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
-    resetStore, updateVarianceConfig, updateNovaConfig, personalCardOrder, updateCardOrder,
+    resetStore, updateVarianceConfig, updateNovaConfig,
+    personalCardOrder, updateCardOrder,
+    householdCardOrder, updateHouseholdCardOrder,
+    businessCardOrder, updateBusinessCardOrder,
+    spendingBuckets,
   } = useStore();
   const { exportAllData, importAllData, exportBusinessCsvs } = useExport();
 
@@ -117,7 +121,9 @@ export default function SettingsScreen() {
 
   // --- Danger Zone ---
   const [resetInput, setResetInput] = useState('');
-  const [cardOrderVisible, setCardOrderVisible] = useState(false);
+  const [personalOrderVisible, setPersonalOrderVisible] = useState(false);
+  const [householdOrderVisible, setHouseholdOrderVisible] = useState(false);
+  const [businessOrderVisible, setBusinessOrderVisible] = useState(false);
 
   useEffect(() => {
     if (novaConfig?.paydayReminderEnabled !== undefined) {
@@ -172,13 +178,30 @@ export default function SettingsScreen() {
   const nextPaycheckDateMs = pcDateValid ? new Date(pcYearN, pcMonthN - 1, pcDayN).getTime() : null;
   const followingMs = computeFollowingPaycheck(nextPaycheckDateMs, payFrequency);
   const followingLabel = followingMs ? formatDate(followingMs) : null;
+  const entrepreneurMode = novaConfig?.entrepreneurMode;
+  const userMode = novaConfig?.userMode;
   const savingsGoalVisible = !!(novaConfig?.savingsGoal?.targetCents > 0);
+  const hasGroceriesBucket = (spendingBuckets || []).some((b) => b.isActive !== false && b.type === 'groceries');
   const personalDisplayCards = [
     { id: 'accounts', label: 'Account Balances' },
     { id: 'pay_cycle', label: 'Pay Cycle' },
     ...(savingsGoalVisible ? [{ id: 'savings_goal', label: 'Savings Goal' }] : []),
     { id: 'bills', label: 'Bills & Subscriptions' },
+    ...(hasGroceriesBucket && userMode === 'solo' ? [{ id: 'grocery', label: 'Grocery Budget' }] : []),
     { id: 'recent_activity', label: 'Recent Activity' },
+  ];
+  const householdDisplayCards = [
+    { id: 'joint_balance', label: 'Shared Account' },
+    { id: 'partner_deposit', label: 'Partner Deposit' },
+    ...(hasGroceriesBucket ? [{ id: 'grocery', label: 'Grocery Budget' }] : []),
+    { id: 'bills', label: 'Household Bills' },
+    { id: 'recent_activity', label: 'Recent Activity' },
+  ];
+  const businessDisplayCards = [
+    { id: 'business_balance', label: 'Business Summary' },
+    { id: 'income', label: 'Income' },
+    { id: 'expenses', label: 'Expenses' },
+    { id: 'mileage', label: 'Mileage' },
   ];
 
   const handleSavePaySchedule = async () => {
@@ -409,13 +432,19 @@ export default function SettingsScreen() {
       {/* 8. DISPLAY */}
       <View style={styles.section}>
         <SectionHeader title="DISPLAY" />
-        <Text style={styles.label}>Personal screen card order</Text>
-        <Text style={styles.previewText}>
-          {personalDisplayCards.map((card) => card.label).join(' / ')}
-        </Text>
-        <TouchableOpacity style={styles.saveBtn} onPress={() => setCardOrderVisible(true)}>
-          <Text style={styles.saveBtnText}>CUSTOMIZE CARD ORDER</Text>
+        <TouchableOpacity style={styles.saveBtn} onPress={() => setPersonalOrderVisible(true)}>
+          <Text style={styles.saveBtnText}>PERSONAL CARD ORDER</Text>
         </TouchableOpacity>
+        {userMode === 'partnered' && (
+          <TouchableOpacity style={styles.saveBtn} onPress={() => setHouseholdOrderVisible(true)}>
+            <Text style={styles.saveBtnText}>HOUSEHOLD CARD ORDER</Text>
+          </TouchableOpacity>
+        )}
+        {entrepreneurMode && (
+          <TouchableOpacity style={styles.saveBtn} onPress={() => setBusinessOrderVisible(true)}>
+            <Text style={styles.saveBtnText}>BUSINESS CARD ORDER</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* 9. ABOUT */}
@@ -449,11 +478,28 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
       <CardOrderSheet
-        visible={cardOrderVisible}
+        visible={personalOrderVisible}
+        title="PERSONAL CARD ORDER"
         cards={personalDisplayCards}
-        order={personalCardOrder}
+        currentOrder={personalCardOrder}
         onSave={updateCardOrder}
-        onClose={() => setCardOrderVisible(false)}
+        onClose={() => setPersonalOrderVisible(false)}
+      />
+      <CardOrderSheet
+        visible={householdOrderVisible}
+        title="HOUSEHOLD CARD ORDER"
+        cards={householdDisplayCards}
+        currentOrder={householdCardOrder}
+        onSave={updateHouseholdCardOrder}
+        onClose={() => setHouseholdOrderVisible(false)}
+      />
+      <CardOrderSheet
+        visible={businessOrderVisible}
+        title="BUSINESS CARD ORDER"
+        cards={businessDisplayCards}
+        currentOrder={businessCardOrder}
+        onSave={updateBusinessCardOrder}
+        onClose={() => setBusinessOrderVisible(false)}
       />
     </ScrollView>
   );

@@ -251,11 +251,13 @@ export default function PersonalScreen() {
     : null;
   const savingsGoalAccountKey = savingsGoalAccount ? (savingsGoalAccount.legacyKey || savingsGoalAccount.id) : null;
   const savingsGoalVisible = !!(savingsGoal?.targetCents > 0);
+  const isSoloGroceryVisible = novaConfig?.userMode === 'solo' && hasGroceriesBucket;
   const activeCardIds = [
     'accounts',
     'pay_cycle',
     ...(savingsGoalVisible ? ['savings_goal'] : []),
     'bills',
+    ...(isSoloGroceryVisible ? ['grocery'] : []),
     'recent_activity',
   ];
   const orderedPersonalCards = [
@@ -387,6 +389,7 @@ export default function PersonalScreen() {
       );
     }
     if (id === 'bills') return renderBillsCard();
+    if (id === 'grocery') return <GroceryBudgetCard />;
     if (id === 'recent_activity') return renderRecentActivityCard();
     return null;
   };
@@ -448,8 +451,6 @@ export default function PersonalScreen() {
           {renderPersonalCard(id)}
         </React.Fragment>
       ))}
-
-      {novaConfig?.userMode === 'solo' && hasGroceriesBucket && <GroceryBudgetCard />}
 
       {/* Activity action menu */}
       <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>

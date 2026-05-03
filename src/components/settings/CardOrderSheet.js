@@ -2,19 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../../config/theme.config';
 
-export default function CardOrderSheet({ visible, cards, order, onSave, onClose }) {
+export default function CardOrderSheet({ visible, title, cards, currentOrder, onSave, onClose }) {
   const [draft, setDraft] = useState([]);
 
   useEffect(() => {
     if (visible) {
       const activeIds = new Set((cards || []).map(c => c.id));
-      const ordered = [...(order || []).filter(id => activeIds.has(id))];
+      const ordered = [...(currentOrder || []).filter(id => activeIds.has(id))];
       for (const card of cards || []) {
         if (!ordered.includes(card.id)) ordered.push(card.id);
       }
       setDraft(ordered);
     }
-  }, [visible, cards, order]);
+  }, [visible, cards, currentOrder]);
 
   const labels = Object.fromEntries((cards || []).map(c => [c.id, c.label]));
 
@@ -39,7 +39,7 @@ export default function CardOrderSheet({ visible, cards, order, onSave, onClose 
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.panel}>
-          <Text style={styles.title}>CUSTOMIZE CARD ORDER</Text>
+          <Text style={styles.title}>{title || 'CUSTOMIZE CARD ORDER'}</Text>
           {draft.length === 0 && <Text style={styles.empty}>No reorderable cards are currently visible.</Text>}
           {draft.map((id, idx) => (
             <View key={id} style={styles.row}>

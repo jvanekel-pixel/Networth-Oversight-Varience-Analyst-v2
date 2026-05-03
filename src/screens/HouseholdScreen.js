@@ -63,6 +63,7 @@ export default function HouseholdScreen() {
   const userMode = useStore((s) => s.novaConfig?.userMode);
   const accountRegistry = useStore((s) => s.accountRegistry);
   const spendingBuckets = useStore((s) => s.spendingBuckets);
+  const householdCardOrder = useStore((s) => s.householdCardOrder);
   const isPartnered = userMode === 'partnered';
   const hasGroceriesBucket = (spendingBuckets || []).some((b) => b.isActive !== false && b.type === 'groceries');
   const householdAccount = (accountRegistry || []).find(a => a.isActive !== false && a.role === 'household');
@@ -118,6 +119,144 @@ export default function HouseholdScreen() {
     ? (warnings || []).filter(w => w.accountKey === householdAccountKey)
     : [];
 
+  const activeHouseholdCardIds = [
+    'joint_balance',
+    ...(isPartnered ? ['partner_deposit'] : []),
+    ...(isPartnered && hasGroceriesBucket ? ['grocery'] : []),
+    ...(isPartnered ? ['bills'] : []),
+    ...(isPartnered ? ['recent_activity'] : []),
+  ];
+  const orderedHouseholdCards = [
+    ...(householdCardOrder || []).filter((id) => activeHouseholdCardIds.includes(id)),
+    ...activeHouseholdCardIds.filter((id) => !(householdCardOrder || []).includes(id)),
+  ];
+
+  const renderRecentActivityCard = () => {
+    const recentTx = [...(transactions || [])]
+      .filter(t => !t.deleted && householdAccountKey && t.accountKey === householdAccountKey)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 10);
+    return (
+      <View style={styles.activitySection}>
+        <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
+        {recentTx.length === 0 && (
+          <Text style={styles.metaText}>No transactions yet.</Text>
+        )}
+        {recentTx.map(tx => {
+          const isPositive = tx.amountCents > 0;
+          const desc = (tx.description || '').slice(0, 30);
+          return (
+            <TouchableOpacity
+              key={tx.id}
+              style={styles.activityRow}
+              onLongPress={() => setActivityMenuTx(tx)}
+              delayLongPress={400}
+            >
+              <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
+                {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
+              </Text>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
+                <Text style={styles.activityMeta}>{householdAccountLabel} · {timeAgo(tx.timestamp)}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderHouseholdCard = (id) => {
+    if (id === 'joint_balance') {
+      return (
+        <Card>
+          {householdAccount ? (
+            <>
+              <Text style={styles.cardLabel}>{householdAccountLabel.toUpperCase()}</Text>
+              <Text style={styles.balanceText}>{formatCentsShort(accounts[householdAccountKey] || 0)}</Text>
+              <View style={styles.btnRow}>
+                <TouchableOpacity style={styles.btnIncome} onPress={() => setTxType('income')}>
+                  <Text style={styles.btnText}>LOG INCOME</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.btnExpense} onPress={() => setTxType('expense')}>
+                  <Text style={styles.btnText}>LOG EXPENSE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.btnDim} onPress={() => setEditBalVisible(true)}>
+                  <Text style={styles.btnDimText}>EDIT BAL</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.cardLabel}>SHARED ACCOUNT</Text>
+              <Text style={styles.balanceText}>—</Text>
+              <Text style={[styles.metaText, { marginTop: theme.spacingSM }]}>Add a shared account in Settings.</Text>
+            </>
+          )}
+        </Card>
+      );
+    }
+    if (id === 'partner_deposit') {
+      return (
+        <Card>
+          <Text style={styles.cardLabel}>PARTNER DEPOSIT</Text>
+          <Text style={styles.metaText}>Expected: {formatDate(expectedDepositDate.getTime())}</Text>
+          {depositReceivedThisMonth ? (
+            <Text style={[styles.metaText, { color: theme.statusPositive }]}>✓ Received this month</Text>
+          ) : depositDatePast ? (
+            <Text style={[styles.metaText, { color: theme.statusWarning }]}>⚠ Not yet received — date passed</Text>
+          ) : (
+            <Text style={[styles.metaText, { color: theme.textSecondary }]}>Pending</Text>
+          )}
+          {!depositReceivedThisMonth && (
+            <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setDepositVisible(true)}>
+              <Text style={styles.btnText}>RECORD DEPOSIT</Text>
+            </TouchableOpacity>
+          )}
+        </Card>
+      );
+    }
+    if (id === 'grocery') return <GroceryBudgetCard />;
+    if (id === 'bills') {
+      return (
+        <Card>
+          <Text style={styles.cardLabel}>HOUSEHOLD BILLS</Text>
+          {sortedBills.length === 0 && (
+            <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No bills added yet.</Text>
+          )}
+          {sortedBills.map(bill => {
+            const paidThisMonth = billOverrides[bill.id]?.lastPaidMonth === currentMonth;
+            return (
+              <View key={bill.id} style={styles.billRow}>
+                <View style={styles.billInfo}>
+                  <Text style={styles.billName}>{bill.name}</Text>
+                  <Text style={styles.billMeta}>{formatCents(bill.amountCents)} · Due {ordinalDay(bill.dueDay || bill.expectedDay)}</Text>
+                </View>
+                <View style={styles.billActions}>
+                  <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
+                    <Text style={styles.editBtnText}>EDIT</Text>
+                  </TouchableOpacity>
+                  {paidThisMonth ? (
+                    <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
+                  ) : (
+                    <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
+                      <Text style={styles.markPaidText}>MARK PAID</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+          <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
+            <Text style={styles.addBillText}>+ ADD BILL</Text>
+          </TouchableOpacity>
+        </Card>
+      );
+    }
+    if (id === 'recent_activity') return renderRecentActivityCard();
+    return null;
+  };
+
   const handleTxSubmit = async ({ amountCents, category, description }) => {
     if (!householdAccountKey) return;
     await logTransaction({ accountKey: householdAccountKey, amountCents, category, description });
@@ -150,128 +289,14 @@ export default function HouseholdScreen() {
         <Text style={styles.screenSubtitle}>Joint Accounts + Bills</Text>
       </View>
 
-      {/* 2. Shared account balance card */}
-      <Card>
-        {householdAccount ? (
-          <>
-            <Text style={styles.cardLabel}>{householdAccountLabel.toUpperCase()}</Text>
-            <Text style={styles.balanceText}>{formatCentsShort(accounts[householdAccountKey] || 0)}</Text>
-            <View style={styles.btnRow}>
-              <TouchableOpacity style={styles.btnIncome} onPress={() => setTxType('income')}>
-                <Text style={styles.btnText}>LOG INCOME</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnExpense} onPress={() => setTxType('expense')}>
-                <Text style={styles.btnText}>LOG EXPENSE</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnDim} onPress={() => setEditBalVisible(true)}>
-                <Text style={styles.btnDimText}>EDIT BAL</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={styles.cardLabel}>SHARED ACCOUNT</Text>
-            <Text style={styles.balanceText}>—</Text>
-            <Text style={[styles.metaText, { marginTop: theme.spacingSM }]}>Add a shared account in Settings.</Text>
-          </>
-        )}
-      </Card>
+      {/* Ordered cards */}
+      {orderedHouseholdCards.map((id) => (
+        <React.Fragment key={id}>
+          {renderHouseholdCard(id)}
+        </React.Fragment>
+      ))}
 
-      {/* 3. Partner Deposit card */}
-      {isPartnered && (
-        <Card>
-          <Text style={styles.cardLabel}>PARTNER DEPOSIT</Text>
-          <Text style={styles.metaText}>Expected: {formatDate(expectedDepositDate.getTime())}</Text>
-          {depositReceivedThisMonth ? (
-            <Text style={[styles.metaText, { color: theme.statusPositive }]}>✓ Received this month</Text>
-          ) : depositDatePast ? (
-            <Text style={[styles.metaText, { color: theme.statusWarning }]}>⚠ Not yet received — date passed</Text>
-          ) : (
-            <Text style={[styles.metaText, { color: theme.textSecondary }]}>Pending</Text>
-          )}
-          {!depositReceivedThisMonth && (
-            <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={() => setDepositVisible(true)}>
-              <Text style={styles.btnText}>RECORD DEPOSIT</Text>
-            </TouchableOpacity>
-          )}
-        </Card>
-      )}
-
-      {/* 4. Grocery Budget card */}
-      {isPartnered && hasGroceriesBucket && <GroceryBudgetCard />}
-
-      {/* 5. Household Bills */}
-      {isPartnered && <Card>
-        <Text style={styles.cardLabel}>HOUSEHOLD BILLS</Text>
-        {sortedBills.length === 0 && (
-          <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No bills added yet.</Text>
-        )}
-        {sortedBills.map(bill => {
-          const paidThisMonth = billOverrides[bill.id]?.lastPaidMonth === currentMonth;
-          return (
-            <View key={bill.id} style={styles.billRow}>
-              <View style={styles.billInfo}>
-                <Text style={styles.billName}>{bill.name}</Text>
-                <Text style={styles.billMeta}>{formatCents(bill.amountCents)} · Due {ordinalDay(bill.dueDay || bill.expectedDay)}</Text>
-              </View>
-              <View style={styles.billActions}>
-                <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
-                  <Text style={styles.editBtnText}>EDIT</Text>
-                </TouchableOpacity>
-                {paidThisMonth ? (
-                  <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
-                ) : (
-                  <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
-                    <Text style={styles.markPaidText}>MARK PAID</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          );
-        })}
-        <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
-          <Text style={styles.addBillText}>+ ADD BILL</Text>
-        </TouchableOpacity>
-      </Card>}
-
-      {/* 6. Recent Activity */}
-      {isPartnered && (() => {
-        const recentTx = [...(transactions || [])]
-          .filter(t => !t.deleted && householdAccountKey && t.accountKey === householdAccountKey)
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-          .slice(0, 10);
-        return (
-          <View style={styles.activitySection}>
-            <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
-            {recentTx.length === 0 && (
-              <Text style={styles.metaText}>No transactions yet.</Text>
-            )}
-            {recentTx.map(tx => {
-              const isPositive = tx.amountCents > 0;
-              const desc = (tx.description || '').slice(0, 30);
-              const acctLabel = householdAccountLabel;
-              return (
-                <TouchableOpacity
-                  key={tx.id}
-                  style={styles.activityRow}
-                  onLongPress={() => setActivityMenuTx(tx)}
-                  delayLongPress={400}
-                >
-                  <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
-                    {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
-                  </Text>
-                  <View style={styles.activityInfo}>
-                    <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
-                    <Text style={styles.activityMeta}>{acctLabel} · {timeAgo(tx.timestamp)}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        );
-      })()}
-
-      {/* 7. Floor warnings */}
+      {/* Floor warnings — outside order loop */}
       {isPartnered && jointWarnings.length > 0 && (
         <View style={styles.warningCard}>
           {jointWarnings.map((w, i) => (
