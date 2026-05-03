@@ -6,6 +6,7 @@ import {
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCentsShort, parseBillInput } from '../utils/currency';
+import DatePickerField from '../components/DatePickerField';
 
 function Section({ title, children }) {
   return (
@@ -36,15 +37,25 @@ function AddEntryModal({ visible, title, fields, onSubmit, onClose }) {
           <Text style={styles.sheetTitle}>{title}</Text>
           {fields.map((f) => (
             <View key={f.key}>
-              <Text style={styles.fieldLabel}>{f.label}</Text>
-              <TextInput
-                style={styles.input}
-                value={values[f.key] || ''}
-                onChangeText={(v) => setValues((p) => ({ ...p, [f.key]: v }))}
-                placeholder={f.placeholder || ''}
-                placeholderTextColor={theme.textDim}
-                keyboardType={f.numeric ? 'decimal-pad' : 'default'}
-              />
+              {f.type === 'date' ? (
+                <DatePickerField
+                  label={f.label}
+                  value={values[f.key] || ''}
+                  onChange={(v) => setValues((p) => ({ ...p, [f.key]: v }))}
+                />
+              ) : (
+                <>
+                  <Text style={styles.fieldLabel}>{f.label}</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={values[f.key] || ''}
+                    onChangeText={(v) => setValues((p) => ({ ...p, [f.key]: v }))}
+                    placeholder={f.placeholder || ''}
+                    placeholderTextColor={theme.textDim}
+                    keyboardType={f.numeric ? 'decimal-pad' : 'default'}
+                  />
+                </>
+              )}
             </View>
           ))}
           <View style={styles.sheetActions}>
@@ -179,7 +190,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
         fields={[
           { key: 'clientName', label: 'CLIENT / SOURCE', placeholder: 'Client name' },
           { key: 'amount', label: 'AMOUNT', placeholder: '0.00', numeric: true },
-          { key: 'date', label: 'DATE (YYYY-MM-DD)', placeholder: new Date().toISOString().slice(0, 10) },
+          { key: 'date', label: 'DATE', type: 'date' },
         ]}
         onSubmit={(vals) => {
           const entry = {
@@ -200,7 +211,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
         fields={[
           { key: 'description', label: 'DESCRIPTION', placeholder: 'What was it?' },
           { key: 'amount', label: 'AMOUNT', placeholder: '0.00', numeric: true },
-          { key: 'date', label: 'DATE (YYYY-MM-DD)', placeholder: new Date().toISOString().slice(0, 10) },
+          { key: 'date', label: 'DATE', type: 'date' },
         ]}
         onSubmit={(vals) => {
           const entry = {

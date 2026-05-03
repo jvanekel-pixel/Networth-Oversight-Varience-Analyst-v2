@@ -2,17 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Switch, Alert } from 'react-native';
 import theme from '../config/theme.config';
 import { parseCentsInput, formatCents, formatCentsShort, parseBillInput } from '../utils/currency';
+import useStore from '../store/useStore';
 
-const INCOME_CATEGORIES = ['Paycheck', 'Partner Deposit', 'Other'];
+const ALL_INCOME_CATEGORIES = ['Paycheck', 'Partner Deposit', 'Other'];
 const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Grocery', 'Other'];
 
 export function LogTransactionModal({ visible, type, accountName, onSubmit, onClose }) {
+  const userMode = useStore((s) => s.novaConfig?.userMode);
   const [amountRaw, setAmountRaw] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const incomeCategories = userMode === 'partnered'
+    ? ALL_INCOME_CATEGORIES
+    : ALL_INCOME_CATEGORIES.filter(c => c !== 'Partner Deposit');
+  const categories = type === 'income' ? incomeCategories : EXPENSE_CATEGORIES;
   const previewCents = parseBillInput(amountRaw);
 
   const reset = () => {
@@ -259,7 +264,8 @@ export function MarkPaidModal({ visible, bill, accountOptions = [], onSubmit, on
       setDay(String(n.getDate()));
       setYear(String(n.getFullYear()));
       setAmountRaw(bill.amountCents > 0 ? (bill.amountCents / 100).toFixed(2) : '');
-      setAccountKey(bill.defaultAccountKey || (accountOptions[0]?.key || ''));
+      const resolvedKey = accountOptions.find(o => o.key === bill.defaultAccountKey)?.key || '';
+      setAccountKey(resolvedKey);
       setNotes('');
       setIsSubmitting(false);
     }
@@ -274,7 +280,7 @@ export function MarkPaidModal({ visible, bill, accountOptions = [], onSubmit, on
   const datePreview = isValidDate
     ? `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
     : 'Invalid date';
-  const canSubmit = isValidDate && previewCents > 0 && !!accountKey && !isSubmitting;
+  const canSubmit = isValidDate && previewCents > 0 && !isSubmitting;
 
   const handleClose = () => onClose();
   const handleSubmit = async () => {
@@ -503,8 +509,12 @@ export function EditBillModal({ visible, bill, accountOptions = [], onSubmit, on
 }
 
 export function EditTransactionModal({ visible, transaction, onSubmit, onClose }) {
+  const userMode = useStore((s) => s.novaConfig?.userMode);
   const isIncome = transaction?.amountCents > 0;
-  const categories = isIncome ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const incomeCategories = userMode === 'partnered'
+    ? ALL_INCOME_CATEGORIES
+    : ALL_INCOME_CATEGORIES.filter(c => c !== 'Partner Deposit');
+  const categories = isIncome ? incomeCategories : EXPENSE_CATEGORIES;
 
   const [amountRaw, setAmountRaw] = useState('');
   const [category, setCategory] = useState('');

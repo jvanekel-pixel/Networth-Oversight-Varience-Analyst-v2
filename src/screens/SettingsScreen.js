@@ -18,6 +18,7 @@ import SavingsGoalSection from '../components/settings/SavingsGoalSection';
 import EntrepreneurModeSection from '../components/settings/EntrepreneurModeSection';
 import PartnerDepositSection from '../components/settings/PartnerDepositSection';
 import PaycheckSplitSheet from '../components/settings/PaycheckSplitSheet';
+import CardOrderSheet from '../components/settings/CardOrderSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FREQ_OPTIONS = [
@@ -83,7 +84,7 @@ function SegmentedControl({ options, value, onChange }) {
 export default function SettingsScreen() {
   const {
     incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
-    resetStore, updateVarianceConfig, updateNovaConfig,
+    resetStore, updateVarianceConfig, updateNovaConfig, personalCardOrder, updateCardOrder,
   } = useStore();
   const { exportAllData, importAllData, exportBusinessCsvs } = useExport();
 
@@ -116,6 +117,7 @@ export default function SettingsScreen() {
 
   // --- Danger Zone ---
   const [resetInput, setResetInput] = useState('');
+  const [cardOrderVisible, setCardOrderVisible] = useState(false);
 
   useEffect(() => {
     if (novaConfig?.paydayReminderEnabled !== undefined) {
@@ -170,6 +172,14 @@ export default function SettingsScreen() {
   const nextPaycheckDateMs = pcDateValid ? new Date(pcYearN, pcMonthN - 1, pcDayN).getTime() : null;
   const followingMs = computeFollowingPaycheck(nextPaycheckDateMs, payFrequency);
   const followingLabel = followingMs ? formatDate(followingMs) : null;
+  const savingsGoalVisible = !!(novaConfig?.savingsGoal?.targetCents > 0);
+  const personalDisplayCards = [
+    { id: 'accounts', label: 'Account Balances' },
+    { id: 'pay_cycle', label: 'Pay Cycle' },
+    ...(savingsGoalVisible ? [{ id: 'savings_goal', label: 'Savings Goal' }] : []),
+    { id: 'bills', label: 'Bills & Subscriptions' },
+    { id: 'recent_activity', label: 'Recent Activity' },
+  ];
 
   const handleSavePaySchedule = async () => {
     const nextPaycheckDate = payFrequency === 'unscheduled' ? null : nextPaycheckDateMs;
@@ -396,7 +406,19 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 8. ABOUT */}
+      {/* 8. DISPLAY */}
+      <View style={styles.section}>
+        <SectionHeader title="DISPLAY" />
+        <Text style={styles.label}>Personal screen card order</Text>
+        <Text style={styles.previewText}>
+          {personalDisplayCards.map((card) => card.label).join(' / ')}
+        </Text>
+        <TouchableOpacity style={styles.saveBtn} onPress={() => setCardOrderVisible(true)}>
+          <Text style={styles.saveBtnText}>CUSTOMIZE CARD ORDER</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 9. ABOUT */}
       <View style={styles.section}>
         <AboutSection />
       </View>
@@ -426,6 +448,13 @@ export default function SettingsScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+      <CardOrderSheet
+        visible={cardOrderVisible}
+        cards={personalDisplayCards}
+        order={personalCardOrder}
+        onSave={updateCardOrder}
+        onClose={() => setCardOrderVisible(false)}
+      />
     </ScrollView>
   );
 }

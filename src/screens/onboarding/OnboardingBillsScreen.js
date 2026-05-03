@@ -13,7 +13,7 @@ const DEFAULT_ACCOUNT_OPTIONS = [
   { key: 'entChecking', label: 'Personal Checking' },
 ];
 
-const BLANK = { name: '', amount: '', dueDay: '', accountKey: 'jointChecking' };
+const BLANK = { name: '', amount: '', dueDay: '', accountKey: null };
 
 export default function OnboardingBillsScreen({ navigation }) {
   const { wizardState, updateWizard } = useWizard();
@@ -72,7 +72,12 @@ export default function OnboardingBillsScreen({ navigation }) {
             <View style={styles.billInfo}>
               <Text style={styles.billName}>{b.name}</Text>
               <Text style={styles.billMeta}>
-                {formatCentsShort(b.amountCents)} · due day {b.dueDay} · {b.defaultAccountKey}
+                {formatCentsShort(b.amountCents)} · due day {b.dueDay} · {(() => {
+                  const key = b.defaultAccountKey;
+                  if (!key) return 'Unassigned';
+                  const found = accountOptions.find(a => a.key === key);
+                  return found ? found.label : 'Unassigned';
+                })()}
               </Text>
             </View>
             <TouchableOpacity onPress={() => handleRemove(b.id)}>

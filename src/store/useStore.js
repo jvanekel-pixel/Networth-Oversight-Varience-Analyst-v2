@@ -44,7 +44,18 @@ const KEYS = {
   accountRegistry: 'nova_v2_account_registry',
   businesses: 'nova_v2_businesses',
   spendingBuckets: 'nova_v2_spending_buckets',
+  personalCardOrder: 'nova_v2_personal_card_order',
 };
+
+const DEFAULT_PERSONAL_CARD_ORDER = [
+  'accounts',
+  'pay_cycle',
+  'savings_goal',
+  'bills',
+  'recent_activity',
+];
+
+const PERSONAL_CARD_IDS = new Set(DEFAULT_PERSONAL_CARD_ORDER);
 
 const initialState = {
   onboardingComplete: false,
@@ -98,6 +109,7 @@ const initialState = {
     postPaydayExpiryHours: 12,
     postPaydayActionToggles: { venmo: true, savings: true },
     paycheckSplits: [],
+    savingsGoal: { key: null, targetCents: 0, label: null, accountId: null },
     onboardingComplete: false,
     userMode: null,
     entrepreneurMode: false,
@@ -106,6 +118,7 @@ const initialState = {
   accountRegistry: [],
   businesses: [],
   spendingBuckets: [],
+  personalCardOrder: DEFAULT_PERSONAL_CARD_ORDER,
 };
 
 async function loadKey(key, fallback) {
@@ -130,6 +143,36 @@ function upgradeBillIfNeeded(bill, defaultAccountKey) {
     lastPaidMonth: bill.lastPaidMonth || null,
     defaultAccountKey: bill.defaultAccountKey || defaultAccountKey,
     createdAt: bill.createdAt || Date.now(),
+  };
+}
+
+function normalizeBucketType(nameOrType) {
+  const raw = String(nameOrType || '').trim().toLowerCase();
+  if (!raw) return 'custom';
+  if (raw === 'groceries' || raw === 'grocery') return 'groceries';
+  if (raw === 'gas') return 'gas';
+  if (raw === 'phone') return 'phone';
+  if (raw === 'medication' || raw === 'medicine' || raw === 'meds') return 'medication';
+  if (raw === 'kids / pets' || raw === 'kids pets' || raw === 'kids_pets' || raw === 'pets') return 'kids_pets';
+  return 'custom';
+}
+
+function upgradeBucketIfNeeded(bucket) {
+  const type = bucket.type || normalizeBucketType(bucket.canonicalLabel || bucket.name || bucket.label);
+  return {
+    ...bucket,
+    type,
+    canonicalLabel: bucket.canonicalLabel || type,
+    isActive: bucket.isActive !== false,
+  };
+}
+
+function normalizeSavingsGoal(goal) {
+  if (!goal) return initialState.novaConfig.savingsGoal;
+  return {
+    ...initialState.novaConfig.savingsGoal,
+    ...goal,
+    accountId: goal.accountId || null,
   };
 }
 
@@ -172,6 +215,7 @@ const useStore = create((set, get) => ({
       accountRegistry,
       businesses,
       spendingBuckets,
+      personalCardOrder,
     ] = await Promise.all([
       loadKey(KEYS.onboardingComplete, initialState.onboardingComplete),
       loadKey(KEYS.accounts, initialState.accounts),
@@ -207,6 +251,7 @@ const useStore = create((set, get) => ({
       loadKey(KEYS.accountRegistry, initialState.accountRegistry),
       loadKey(KEYS.businesses, initialState.businesses),
       loadKey(KEYS.spendingBuckets, initialState.spendingBuckets),
+      loadKey(KEYS.personalCardOrder, initialState.personalCardOrder),
     ]);
 
     // Migrate old partnerDepositReceived boolean to partnerDepositLastReceivedMonth
@@ -221,15 +266,29 @@ const useStore = create((set, get) => ({
     // Migrate bills to V1.2 schema (idempotent — no-op for already-upgraded bills)
     const upgradedHouseholdBills = householdBills.map(b => upgradeBillIfNeeded(b, 'jointChecking'));
     const upgradedPersonalBills = personalBills.map(b => upgradeBillIfNeeded(b, 'entChecking'));
+    const upgradedSpendingBuckets = (spendingBuckets || []).map(upgradeBucketIfNeeded);
+    const resolvedPersonalCardOrder = Array.isArray(personalCardOrder) && personalCardOrder.length > 0
+      ? [
+        ...personalCardOrder.filter((id) => PERSONAL_CARD_IDS.has(id)),
+        ...DEFAULT_PERSONAL_CARD_ORDER.filter((id) => !personalCardOrder.includes(id)),
+      ]
+      : DEFAULT_PERSONAL_CARD_ORDER;
 
     // Merge novaConfig with defaults so new fields are always present
-    const mergedNovaConfig = { ...initialState.novaConfig, ...novaConfig };
+    const mergedNovaConfig = {
+      ...initialState.novaConfig,
+      ...novaConfig,
+      savingsGoal: normalizeSavingsGoal(novaConfig?.savingsGoal),
+    };
 
-    // Registry migration — runs once; guard: registry already populated
+    // Registry migration — runs once for legacy users who completed onboarding before the registry existed.
+    // Guard: only run when onboarding is already complete (existing user) and registry is empty.
+    // New wizard users have onboardingComplete=false at initStore time, so this never fires for them.
+    // registrySeeded prevents re-firing if a wizard user skipped accounts (leaving registry empty).
     let finalAccountRegistry = accountRegistry;
     let finalBusinesses = businesses;
 
-    if (finalAccountRegistry.length === 0) {
+    if (finalAccountRegistry.length === 0 && onboardingComplete && !mergedNovaConfig.registrySeeded) {
       const mNow = Date.now();
       finalAccountRegistry = [
         { id: 'acc_joint_checking',    legacyKey: 'jointChecking',    name: 'Joint Checking',    type: 'checking', role: 'household', isActive: true, createdAt: mNow },
@@ -239,14 +298,11 @@ const useStore = create((set, get) => ({
         { id: 'acc_cash',              legacyKey: 'cash',             name: 'Cash',              type: 'cash',     role: 'personal',  isActive: true, createdAt: mNow },
         { id: 'acc_cleaning_checking', legacyKey: 'cleaningChecking', name: 'Cleaning Checking', type: 'checking', role: 'business',  isActive: true, createdAt: mNow },
       ];
+      mergedNovaConfig.userMode = 'partnered';
+      mergedNovaConfig.entrepreneurMode = true;
+      mergedNovaConfig.registrySeeded = true;
       await AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(finalAccountRegistry));
-      if (onboardingComplete) {
-        // Existing user — mark wizard complete, infer mode from existing data
-        mergedNovaConfig.onboardingComplete = true;
-        mergedNovaConfig.userMode = 'partnered';
-        mergedNovaConfig.entrepreneurMode = true;
-        await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(mergedNovaConfig));
-      }
+      await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(mergedNovaConfig));
     }
 
     if (finalBusinesses.length === 0 && onboardingComplete) {
@@ -292,11 +348,14 @@ const useStore = create((set, get) => ({
       groceryDisciplineStreak,
       accountRegistry: finalAccountRegistry,
       businesses: finalBusinesses,
-      spendingBuckets,
+      spendingBuckets: upgradedSpendingBuckets,
+      personalCardOrder: resolvedPersonalCardOrder,
     });
     await Promise.all([
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(upgradedHouseholdBills)),
       AsyncStorage.setItem(KEYS.personalBills, JSON.stringify(upgradedPersonalBills)),
+      AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(upgradedSpendingBuckets)),
+      AsyncStorage.setItem(KEYS.personalCardOrder, JSON.stringify(resolvedPersonalCardOrder)),
     ]);
   },
 
@@ -563,15 +622,17 @@ const useStore = create((set, get) => ({
     const desc = notes ? `Bill: ${bill.name} — ${notes}` : `Bill: ${bill.name}`;
 
     const updatedOverrides = { ...billOverrides, [billId]: { lastPaidMonth: paidMonth } };
-    const updatedAccounts = { ...accounts, [accountKey]: (accounts[accountKey] || 0) - amt };
-    const newTx = {
+    const updatedAccounts = accountKey
+      ? { ...accounts, [accountKey]: (accounts[accountKey] || 0) - amt }
+      : { ...accounts };
+    const newTx = accountKey ? {
       id: now.toString() + Math.random().toString(36).slice(2, 6),
       accountKey,
       amountCents: -amt,
       category: 'bill_payment',
       description: desc,
       timestamp: paidDate,
-    };
+    } : null;
 
     const updateBillInArray = (arr) =>
       arr.map(b => b.id === billId
@@ -581,7 +642,7 @@ const useStore = create((set, get) => ({
 
     const updatedHouseholdBills = updateBillInArray(householdBills);
     const updatedPersonalBills = updateBillInArray(personalBills);
-    const updatedTransactions = [...transactions, newTx];
+    const updatedTransactions = newTx ? [...transactions, newTx] : [...transactions];
 
     set({
       billOverrides: updatedOverrides,
@@ -1300,6 +1361,13 @@ const useStore = create((set, get) => ({
     await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(merged));
   },
 
+  updateSavingsGoal: async (goal) => {
+    const savingsGoal = normalizeSavingsGoal(goal);
+    const novaConfig = { ...get().novaConfig, savingsGoal };
+    set({ novaConfig });
+    await AsyncStorage.setItem(KEYS.novaConfig, JSON.stringify(novaConfig));
+  },
+
   // Account registry
   addAccount: async (account) => {
     const id = account.id || `acc_${Date.now()}`;
@@ -1356,14 +1424,19 @@ const useStore = create((set, get) => ({
   // Spending buckets
   addBucket: async (bucket) => {
     const id = bucket.id || `bucket_${Date.now()}`;
-    const newEntry = { ...bucket, id, createdAt: Date.now() };
+    const type = bucket.type || normalizeBucketType(bucket.name || bucket.label);
+    const newEntry = { ...bucket, id, type, canonicalLabel: bucket.canonicalLabel || type, isActive: bucket.isActive !== false, createdAt: Date.now() };
     const spendingBuckets = [...get().spendingBuckets, newEntry];
     set({ spendingBuckets });
     await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
   },
 
   editBucket: async (id, updates) => {
-    const spendingBuckets = get().spendingBuckets.map(b => b.id === id ? { ...b, ...updates } : b);
+    const spendingBuckets = get().spendingBuckets.map(b => {
+      if (b.id !== id) return b;
+      const merged = { ...b, ...updates };
+      return upgradeBucketIfNeeded(merged);
+    });
     set({ spendingBuckets });
     await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
   },
@@ -1372,6 +1445,21 @@ const useStore = create((set, get) => ({
     const spendingBuckets = get().spendingBuckets.filter(b => b.id !== id);
     set({ spendingBuckets });
     await AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(spendingBuckets));
+  },
+
+  updateCardOrder: async (order) => {
+    const cleaned = Array.isArray(order) && order.length > 0
+      ? [
+        ...order.filter((id) => PERSONAL_CARD_IDS.has(id)),
+        ...DEFAULT_PERSONAL_CARD_ORDER.filter((id) => !order.includes(id)),
+      ]
+      : DEFAULT_PERSONAL_CARD_ORDER;
+    set({ personalCardOrder: cleaned });
+    await AsyncStorage.setItem(KEYS.personalCardOrder, JSON.stringify(cleaned));
+  },
+
+  updatePersonalCardOrder: async (order) => {
+    await get().updateCardOrder(order);
   },
 
   // Wizard completion — writes full payload to store atomically
@@ -1385,6 +1473,7 @@ const useStore = create((set, get) => ({
       userMode = 'solo',
       entrepreneurMode = false,
       paycheckSplits = [],
+      savingsGoal = initialState.novaConfig.savingsGoal,
     } = payload;
     const now = Date.now();
     const mkId = (prefix) => `${prefix}_${now}_${Math.random().toString(36).slice(2, 6)}`;
@@ -1406,17 +1495,24 @@ const useStore = create((set, get) => ({
     const householdAccountKeys = new Set(
       registry.filter(a => a.role === 'household').map(a => a.legacyKey || a.id)
     );
-    if (householdAccountKeys.size === 0) householdAccountKeys.add('jointChecking');
+    // No fallback — only real household accounts classify bills as household.
+    // Wizard bills with no account (null) or an unresolvable key go to personalBills.
 
     const mkBill = (b, defaultAcct) => ({
       id: b.id || mkId('bill'), name: b.name, amountCents: b.amountCents || 0,
       expectedDay: b.dueDay || b.expectedDay || 1, dueDay: b.dueDay || b.expectedDay || 1,
       isAutoDraft: false, isActive: true,
       lastPaidDate: null, lastPaidAmountCents: null, lastPaidMonth: null,
-      defaultAccountKey: b.defaultAccountKey || b.accountKey || defaultAcct, createdAt: now,
+      defaultAccountKey: b.defaultAccountKey || b.accountKey || defaultAcct || null, createdAt: now,
     });
-    const newHouseholdBills = bills.filter(b => householdAccountKeys.has(b.defaultAccountKey || b.accountKey)).map(b => mkBill(b, 'jointChecking'));
-    const newPersonalBills  = bills.filter(b => !householdAccountKeys.has(b.defaultAccountKey || b.accountKey)).map(b => mkBill(b, 'entChecking'));
+    const newHouseholdBills = bills.filter(b => {
+      const key = b.defaultAccountKey || b.accountKey;
+      return key && householdAccountKeys.has(key);
+    }).map(b => mkBill(b, null));
+    const newPersonalBills  = bills.filter(b => {
+      const key = b.defaultAccountKey || b.accountKey;
+      return !key || !householdAccountKeys.has(key);
+    }).map(b => mkBill(b, null));
 
     const incomeEvents = {
       ...get().incomeEvents,
@@ -1432,6 +1528,8 @@ const useStore = create((set, get) => ({
       userMode,
       entrepreneurMode,
       paycheckSplits: paycheckSplits,
+      savingsGoal: normalizeSavingsGoal(savingsGoal),
+      registrySeeded: true,
     };
 
     const finalHouseholdBills = [...get().householdBills, ...newHouseholdBills];
@@ -1440,7 +1538,7 @@ const useStore = create((set, get) => ({
     set({
       accountRegistry: registry,
       businesses: bizRegistry,
-      spendingBuckets: buckets,
+      spendingBuckets: (buckets || []).map(upgradeBucketIfNeeded),
       householdBills: finalHouseholdBills,
       personalBills: finalPersonalBills,
       accounts: accountBalances,
@@ -1452,7 +1550,7 @@ const useStore = create((set, get) => ({
     await Promise.all([
       AsyncStorage.setItem(KEYS.accountRegistry, JSON.stringify(registry)),
       AsyncStorage.setItem(KEYS.businesses, JSON.stringify(bizRegistry)),
-      AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify(buckets)),
+      AsyncStorage.setItem(KEYS.spendingBuckets, JSON.stringify((buckets || []).map(upgradeBucketIfNeeded))),
       AsyncStorage.setItem(KEYS.householdBills, JSON.stringify(finalHouseholdBills)),
       AsyncStorage.setItem(KEYS.personalBills, JSON.stringify(finalPersonalBills)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(accountBalances)),

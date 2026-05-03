@@ -7,6 +7,7 @@ import theme from '../../config/theme.config';
 import ProgressBar from './ProgressBar';
 import { useWizard } from './WizardContext';
 import { parseBillInput } from '../../utils/currency';
+import DatePickerField from '../../components/DatePickerField';
 
 const INCOME_TYPES = [
   { key: 'predictable', label: 'PREDICTABLE', desc: 'Regular paycheck on a set schedule.' },
@@ -91,14 +92,10 @@ export default function OnboardingIncomeScreen({ navigation }) {
         </View>
         {showDetails && (
           <View style={styles.details}>
-            <Text style={styles.fieldLabel}>NEXT PAYDAY DATE (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.input}
+            <DatePickerField
+              label="NEXT PAYDAY DATE"
               value={paydayDate}
-              onChangeText={setPaydayDate}
-              placeholder="2025-05-15"
-              placeholderTextColor={theme.textDim}
-              keyboardType="numbers-and-punctuation"
+              onChange={setPaydayDate}
             />
             <Text style={styles.fieldLabel}>PAYCHECK AMOUNT</Text>
             <TextInput

@@ -8,10 +8,14 @@ import ProgressBar from './ProgressBar';
 import { useWizard } from './WizardContext';
 
 const PRESET_BUCKETS = [
-  'Groceries', 'Dining', 'Gas', 'Entertainment',
-  'Personal Care', 'Health', 'Clothing', 'Home & Garden',
-  'Pet', 'Subscriptions',
+  { name: 'Groceries', type: 'groceries' },
+  { name: 'Gas', type: 'gas' },
+  { name: 'Phone', type: 'phone' },
+  { name: 'Medication', type: 'medication' },
+  { name: 'Kids / Pets', type: 'kids_pets' },
 ];
+
+const PRESET_TYPE_BY_NAME = Object.fromEntries(PRESET_BUCKETS.map((bucket) => [bucket.name, bucket.type]));
 
 export default function OnboardingBucketsScreen({ navigation }) {
   const { wizardState, updateWizard } = useWizard();
@@ -38,10 +42,17 @@ export default function OnboardingBucketsScreen({ navigation }) {
   }
 
   function buildBuckets() {
-    return [...selected].map((name) => ({
-      id: `bucket_${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`,
-      name,
-    }));
+    const now = Date.now();
+    return [...selected].map((name, idx) => {
+      const type = PRESET_TYPE_BY_NAME[name] || 'custom';
+      return {
+        id: `bucket_${type}_${now}_${idx}`,
+        type,
+        canonicalLabel: type,
+        isActive: true,
+        name,
+      };
+    });
   }
 
   function handleNext() {
@@ -68,7 +79,7 @@ export default function OnboardingBucketsScreen({ navigation }) {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.chipGrid}>
-          {PRESET_BUCKETS.map((name) => (
+          {PRESET_BUCKETS.map(({ name }) => (
             <TouchableOpacity
               key={name}
               style={[styles.chip, selected.has(name) && styles.chipSelected]}
@@ -80,7 +91,7 @@ export default function OnboardingBucketsScreen({ navigation }) {
               </Text>
             </TouchableOpacity>
           ))}
-          {[...selected].filter((n) => !PRESET_BUCKETS.includes(n)).map((name) => (
+          {[...selected].filter((n) => !PRESET_TYPE_BY_NAME[n]).map((name) => (
             <TouchableOpacity
               key={name}
               style={[styles.chip, styles.chipSelected]}

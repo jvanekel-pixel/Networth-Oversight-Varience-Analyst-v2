@@ -51,6 +51,14 @@ const personality = {
     floorDefender: 'Floor Defender',
     streakWeek: 'Seven Day Streak',
   },
+
+  savingsGoal: {
+    cardLabel: 'SAVINGS GOAL',
+    defaultLabel: 'Savings Goal',
+    linkPrompt: 'Link an account in Settings to track progress',
+    reachedCopy: 'Buffer reached.',
+    settingsNotLinked: 'Not linked',
+  },
 };
 
 export default personality;

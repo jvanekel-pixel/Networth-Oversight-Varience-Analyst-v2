@@ -6,6 +6,8 @@ import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '
 import { formatDate, timeAgo } from '../utils/dates';
 import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
+import GroceryBudgetCard from '../components/GroceryBudgetCard';
+import SavingsGoalCard from '../components/SavingsGoalCard';
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -158,6 +160,8 @@ export default function PersonalScreen() {
     postPaydayActions,
     novaConfig,
     accountRegistry,
+    spendingBuckets,
+    personalCardOrder,
     logTransaction,
     updateAccountBalance,
     distributePaycheck,
@@ -240,6 +244,152 @@ export default function PersonalScreen() {
 
   const actionsNow = Date.now();
   const pendingActions = (postPaydayActions || []).filter(a => !a.completed && actionsNow < a.expiresAt);
+  const hasGroceriesBucket = (spendingBuckets || []).some((b) => b.isActive !== false && b.type === 'groceries');
+  const savingsGoal = novaConfig?.savingsGoal || null;
+  const savingsGoalAccount = savingsGoal?.accountId
+    ? (accountRegistry || []).find((a) => (a.legacyKey || a.id) === savingsGoal.accountId || a.id === savingsGoal.accountId)
+    : null;
+  const savingsGoalAccountKey = savingsGoalAccount ? (savingsGoalAccount.legacyKey || savingsGoalAccount.id) : null;
+  const savingsGoalVisible = !!(savingsGoal?.targetCents > 0);
+  const activeCardIds = [
+    'accounts',
+    'pay_cycle',
+    ...(savingsGoalVisible ? ['savings_goal'] : []),
+    'bills',
+    'recent_activity',
+  ];
+  const orderedPersonalCards = [
+    ...(personalCardOrder || []).filter((id) => activeCardIds.includes(id)),
+    ...activeCardIds.filter((id) => !(personalCardOrder || []).includes(id)),
+  ];
+
+  const renderRecentActivityCard = () => {
+    const recentTx = [...(transactions || [])]
+      .filter(t => !t.deleted && personalAccountKeys.includes(t.accountKey))
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 10);
+    return (
+      <View style={styles.activitySection}>
+        <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
+        {recentTx.length === 0 && (
+          <Text style={styles.metaText}>No transactions yet.</Text>
+        )}
+        {recentTx.map(tx => {
+          const isPositive = tx.amountCents > 0;
+          const desc = (tx.description || '').slice(0, 30);
+          const acctLabel = getAccountName(tx.accountKey);
+          return (
+            <TouchableOpacity
+              key={tx.id}
+              style={styles.activityRow}
+              onLongPress={() => setActivityMenuTx(tx)}
+              delayLongPress={400}
+            >
+              <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
+                {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
+              </Text>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
+                <Text style={styles.activityMeta}>{acctLabel} · {timeAgo(tx.timestamp)}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderBillsCard = () => (
+    <Card>
+      <Text style={styles.cardLabel}>RECURRING SUBSCRIPTIONS</Text>
+      {sortedBills.length === 0 && (
+        <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No subscriptions added yet.</Text>
+      )}
+      {sortedBills.map(bill => {
+        const paidThisMonth = billOverrides[bill.id]?.lastPaidMonth === currentMonth;
+        return (
+          <View key={bill.id} style={styles.billRow}>
+            <View style={styles.billInfo}>
+              <Text style={styles.billName}>{bill.name}</Text>
+              <Text style={styles.billMeta}>{formatCents(bill.amountCents)} · Due {ordinalDay(bill.dueDay || bill.expectedDay)} · {(() => {
+                const key = bill.defaultAccountKey;
+                if (!key) return 'Unassigned';
+                const found = personalAccounts.find(a => (a.legacyKey || a.id) === key);
+                return found ? (found.name || found.id) : 'Unassigned';
+              })()}</Text>
+            </View>
+            <View style={styles.billActions}>
+              <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
+                <Text style={styles.editBtnText}>EDIT</Text>
+              </TouchableOpacity>
+              {paidThisMonth ? (
+                <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
+              ) : (
+                <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
+                  <Text style={styles.markPaidText}>MARK PAID</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        );
+      })}
+      <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
+        <Text style={styles.addBillText}>+ ADD SUBSCRIPTION</Text>
+      </TouchableOpacity>
+    </Card>
+  );
+
+  const renderPersonalCard = (id) => {
+    if (id === 'accounts') {
+      return (
+        <>
+          {personalAccounts.length === 0 && (
+            <Card>
+              <Text style={styles.cardLabel}>NO ACCOUNTS</Text>
+              <Text style={styles.metaText}>No personal accounts configured. Add one in Settings.</Text>
+            </Card>
+          )}
+          {personalAccounts.map(acct => {
+            const key = acct.legacyKey || acct.id;
+            return (
+              <AccountCard
+                key={acct.id}
+                account={acct}
+                balance={accounts[key] || 0}
+                floorCents={getFloor(key)}
+                onIncome={() => setActiveModal({ accountKey: key, modalType: 'income' })}
+                onExpense={() => setActiveModal({ accountKey: key, modalType: 'expense' })}
+                onEditBal={() => setActiveModal({ accountKey: key, modalType: 'edit' })}
+              />
+            );
+          })}
+        </>
+      );
+    }
+    if (id === 'pay_cycle') {
+      return (
+        <PayCycleSummaryCard
+          incomeEvents={incomeEvents}
+          paycheckSplits={novaConfig?.paycheckSplits}
+          accountRegistry={accountRegistry}
+          onRecordPaycheck={() => setPaycheckVisible(true)}
+        />
+      );
+    }
+    if (id === 'savings_goal') {
+      return (
+        <SavingsGoalCard
+          goalLabel={savingsGoal?.label}
+          targetCents={savingsGoal?.targetCents}
+          currentCents={savingsGoalAccountKey ? (accounts[savingsGoalAccountKey] || 0) : null}
+          accountDisplayName={savingsGoalAccount ? (savingsGoalAccount.name || savingsGoalAccount.id) : null}
+        />
+      );
+    }
+    if (id === 'bills') return renderBillsCard();
+    if (id === 'recent_activity') return renderRecentActivityCard();
+    return null;
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -282,72 +432,24 @@ export default function PersonalScreen() {
         );
       })()}
 
-      {/* 2. Account cards — dynamic from registry */}
-      {personalAccounts.length === 0 && (
-        <Card>
-          <Text style={styles.cardLabel}>NO ACCOUNTS</Text>
-          <Text style={styles.metaText}>No personal accounts configured. Add one in Settings.</Text>
-        </Card>
+      {/* Floor warnings */}
+      {personalWarnings.length > 0 && (
+        <View style={styles.warningCard}>
+          {personalWarnings.map((w, i) => (
+            <Text key={i} style={styles.warningText}>
+              ⚠ {getAccountName(w.accountKey).toUpperCase()} below floor ({formatCents(w.floor)}) - current: {formatCents(w.balance)}
+            </Text>
+          ))}
+        </View>
       )}
-      {personalAccounts.map(acct => {
-        const key = acct.legacyKey || acct.id;
-        return (
-          <AccountCard
-            key={acct.id}
-            account={acct}
-            balance={accounts[key] || 0}
-            floorCents={getFloor(key)}
-            onIncome={() => setActiveModal({ accountKey: key, modalType: 'income' })}
-            onExpense={() => setActiveModal({ accountKey: key, modalType: 'expense' })}
-            onEditBal={() => setActiveModal({ accountKey: key, modalType: 'edit' })}
-          />
-        );
-      })}
 
-      {/* 3. Pay Cycle card */}
-      <PayCycleSummaryCard
-        incomeEvents={incomeEvents}
-        paycheckSplits={novaConfig?.paycheckSplits}
-        accountRegistry={accountRegistry}
-        onRecordPaycheck={() => setPaycheckVisible(true)}
-      />
+      {orderedPersonalCards.map((id) => (
+        <React.Fragment key={id}>
+          {renderPersonalCard(id)}
+        </React.Fragment>
+      ))}
 
-      {/* 4. Recent Activity */}
-      {(() => {
-        const recentTx = [...(transactions || [])]
-          .filter(t => !t.deleted && personalAccountKeys.includes(t.accountKey))
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-          .slice(0, 10);
-        return (
-          <View style={styles.activitySection}>
-            <Text style={styles.activityHeader}>RECENT ACTIVITY</Text>
-            {recentTx.length === 0 && (
-              <Text style={styles.metaText}>No transactions yet.</Text>
-            )}
-            {recentTx.map(tx => {
-              const isPositive = tx.amountCents > 0;
-              const desc = (tx.description || '').slice(0, 30);
-              const acctLabel = getAccountName(tx.accountKey);
-              return (
-                <TouchableOpacity
-                  key={tx.id}
-                  style={styles.activityRow}
-                  onLongPress={() => setActivityMenuTx(tx)}
-                  delayLongPress={400}
-                >
-                  <Text style={[styles.activityAmt, { color: isPositive ? theme.statusPositive : theme.textPrimary }]}>
-                    {isPositive ? '+' : ''}{formatCentsShort(tx.amountCents)}
-                  </Text>
-                  <View style={styles.activityInfo}>
-                    <Text style={styles.activityDesc} numberOfLines={1}>{desc}</Text>
-                    <Text style={styles.activityMeta}>{acctLabel} · {timeAgo(tx.timestamp)}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        );
-      })()}
+      {novaConfig?.userMode === 'solo' && hasGroceriesBucket && <GroceryBudgetCard />}
 
       {/* Activity action menu */}
       <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
@@ -401,51 +503,6 @@ export default function PersonalScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* 5. Floor warnings */}
-      {personalWarnings.length > 0 && (
-        <View style={styles.warningCard}>
-          {personalWarnings.map((w, i) => (
-            <Text key={i} style={styles.warningText}>
-              ⚠ {getAccountName(w.accountKey).toUpperCase()} below floor ({formatCents(w.floor)}) — current: {formatCents(w.balance)}
-            </Text>
-          ))}
-        </View>
-      )}
-
-      {/* 5. Recurring subscriptions */}
-      <Card>
-        <Text style={styles.cardLabel}>RECURRING SUBSCRIPTIONS</Text>
-        {sortedBills.length === 0 && (
-          <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No subscriptions added yet.</Text>
-        )}
-        {sortedBills.map(bill => {
-          const paidThisMonth = billOverrides[bill.id]?.lastPaidMonth === currentMonth;
-          return (
-            <View key={bill.id} style={styles.billRow}>
-              <View style={styles.billInfo}>
-                <Text style={styles.billName}>{bill.name}</Text>
-                <Text style={styles.billMeta}>{formatCents(bill.amountCents)} · Due {ordinalDay(bill.dueDay || bill.expectedDay)}</Text>
-              </View>
-              <View style={styles.billActions}>
-                <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
-                  <Text style={styles.editBtnText}>EDIT</Text>
-                </TouchableOpacity>
-                {paidThisMonth ? (
-                  <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
-                ) : (
-                  <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
-                    <Text style={styles.markPaidText}>MARK PAID</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          );
-        })}
-        <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
-          <Text style={styles.addBillText}>+ ADD SUBSCRIPTION</Text>
-        </TouchableOpacity>
-      </Card>
 
       {/* Modals */}
       <LogTransactionModal

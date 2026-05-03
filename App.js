@@ -240,8 +240,6 @@ async function runAppOpenChecks(incomeEvents, checkAndRunAutoExport) {
 function MainTabs() {
   const entrepreneurMode = useStore((s) => s.novaConfig?.entrepreneurMode);
   const userMode = useStore((s) => s.novaConfig?.userMode);
-  const accountRegistry = useStore((s) => s.accountRegistry);
-  const hasSharedAccount = (accountRegistry || []).some(a => a.role === 'household' && a.isActive !== false);
   return (
     <Tab.Navigator
       screenOptions={{
@@ -253,7 +251,7 @@ function MainTabs() {
       }}
     >
       <Tab.Screen name={theme.tabDashboard} component={DashboardScreen} />
-      {(userMode === 'partnered' && hasSharedAccount) && (
+      {userMode === 'partnered' && (
         <Tab.Screen name={theme.tabHousehold} component={HouseholdScreen} />
       )}
       <Tab.Screen name={theme.tabPersonal} component={PersonalScreen} />

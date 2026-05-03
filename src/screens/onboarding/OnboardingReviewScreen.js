@@ -32,6 +32,15 @@ function Row({ label, value }) {
   );
 }
 
+function formatDateString(value) {
+  if (!value) return '—';
+  const parts = String(value).split('-').map(Number);
+  if (parts.length !== 3) return value;
+  const [year, month, day] = parts;
+  if (!year || !month || !day) return value;
+  return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}/${year}`;
+}
+
 export default function OnboardingReviewScreen({ navigation }) {
   const { wizardState } = useWizard();
   const completeOnboarding = useStore((s) => s.completeOnboarding);
@@ -70,6 +79,11 @@ export default function OnboardingReviewScreen({ navigation }) {
     return `${amt} ${incomeConfig.payFrequency || 'biweekly'}`;
   };
 
+  const accountLabel = (accountId) => {
+    const found = (wizardAccounts || []).find((a) => (a.legacyKey || a.id) === accountId || a.id === accountId);
+    return found ? (found.name || found.id) : null;
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar hidden />
@@ -98,7 +112,7 @@ export default function OnboardingReviewScreen({ navigation }) {
           {incomeConfig.type === 'predictable' && (
             <>
               <Row label="Amount" value={incomeLabel()} />
-              <Row label="Next Payday" value={incomeConfig.paydayDate || '—'} />
+              <Row label="Next Payday" value={formatDateString(incomeConfig.paydayDate)} />
             </>
           )}
         </Section>
@@ -121,7 +135,12 @@ export default function OnboardingReviewScreen({ navigation }) {
 
         <Section title="SAVINGS GOAL" onEdit={() => navigation.navigate('OnboardingSavingsGoal')}>
           {savingsGoal
-            ? <Row label={savingsGoal.label} value={formatCentsShort(savingsGoal.targetCents)} />
+            ? (
+              <>
+                <Row label={savingsGoal.label} value={formatCentsShort(savingsGoal.targetCents)} />
+                <Row label="Account" value={accountLabel(savingsGoal.accountId) || 'Not linked'} />
+              </>
+            )
             : <Text style={styles.emptyNote}>No goal set</Text>
           }
         </Section>
