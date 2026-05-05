@@ -4,9 +4,11 @@ import theme from '../../config/theme.config';
 import useStore from '../../store/useStore';
 import { formatCentsShort, parseBillInput } from '../../utils/currency';
 
-const SCHEDULE_OPTIONS = [
-  { label: 'Last day', value: 'last_day' },
-  { label: 'Last Friday', value: 'last_friday' },
+const FREQ_OPTIONS = [
+  { label: 'Weekly', value: 'weekly' },
+  { label: 'Bi-weekly', value: 'biweekly' },
+  { label: 'Monthly', value: 'monthly' },
+  { label: 'Unscheduled', value: 'unscheduled' },
 ];
 
 function SegmentedControl({ options, value, onChange }) {
@@ -26,87 +28,197 @@ function SegmentedControl({ options, value, onChange }) {
 }
 
 export default function PartnerDepositSection() {
-  const { incomeEvents, novaConfig, updateConfig, recomputeVariance, recordPartnerDeposit, awardXP, rotateFlavorTextForEvent } = useStore();
-  const userMode = novaConfig?.userMode;
+  const {
+    incomeEvents,
+    accountRegistry,
+    upsertScheduledIncomeEvent,
+    removeScheduledIncomeEvent,
+    recordScheduledIncomeEvent,
+    recomputeVariance,
+  } = useStore();
 
-  const [depositAmtRaw, setDepositAmtRaw] = useState('');
-  const [depositSchedule, setDepositSchedule] = useState('last_day');
+  const activeAccounts = (accountRegistry || []).filter(a => a.isActive !== false);
+  const defaultAccountKey = activeAccounts[0] ? (activeAccounts[0].legacyKey || activeAccounts[0].id) : null;
+  const scheduled = (incomeEvents?.scheduledIncomeEvents || []).filter(event => event.isActive !== false);
+
+  const [editingId, setEditingId] = useState(null);
+  const [labelRaw, setLabelRaw] = useState('');
+  const [amountRaw, setAmountRaw] = useState('');
+  const [frequency, setFrequency] = useState('monthly');
+  const [dayRaw, setDayRaw] = useState('1');
+  const [accountKey, setAccountKey] = useState(defaultAccountKey);
 
   useEffect(() => {
-    if (!incomeEvents) return;
-    const dAmt = incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0;
-    setDepositAmtRaw(dAmt > 0 ? (dAmt / 100).toFixed(2) : '');
-    setDepositSchedule(incomeEvents.partnerDepositSchedule || 'last_day');
-  }, []);
+    if (!accountKey && defaultAccountKey) setAccountKey(defaultAccountKey);
+  }, [defaultAccountKey]);
 
-  if (userMode === 'solo') return null;
-
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const depositConfirmedThisMonth = incomeEvents?.partnerDepositLastReceivedMonth === currentMonth;
-  const lastConfirmedDate = incomeEvents?.partnerDepositLastReceivedMonth
-    ? (() => {
-        const [y, m] = incomeEvents.partnerDepositLastReceivedMonth.split('-').map(Number);
-        return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      })()
-    : null;
-
-  const handleSave = async () => {
-    const partnerDepositAmountCents = parseBillInput(depositAmtRaw);
-    await updateConfig({ incomeEvents: { ...incomeEvents, partnerDepositAmountCents, partnerDepositSchedule: depositSchedule } });
-    recomputeVariance();
-    Alert.alert('Saved', 'Partner deposit updated.');
+  const resetForm = () => {
+    setEditingId(null);
+    setLabelRaw('');
+    setAmountRaw('');
+    setFrequency('monthly');
+    setDayRaw('1');
+    setAccountKey(defaultAccountKey);
   };
 
-  const handleConfirmReceived = async () => {
-    const amt = parseBillInput(depositAmtRaw) || (incomeEvents.partnerDepositAmountCents ?? incomeEvents.partnerDepositAmount ?? 0);
-    if (!amt) { Alert.alert('Amount Required', 'Enter the deposit amount first.'); return; }
-    await recordPartnerDeposit(amt);
-    awardXP(10);
-    rotateFlavorTextForEvent('partner_deposit_received');
-    Alert.alert('Confirmed', 'Partner deposit recorded.');
+  const handleEdit = (event) => {
+    setEditingId(event.id);
+    setLabelRaw(event.label || '');
+    setAmountRaw(event.amountCents > 0 ? (event.amountCents / 100).toFixed(2) : '');
+    setFrequency(event.frequency || 'monthly');
+    setDayRaw(String(event.dayOfMonth || 1));
+    setAccountKey(event.accountKey || defaultAccountKey);
+  };
+
+  const handleSave = async () => {
+    const amountCents = parseBillInput(amountRaw);
+    const label = labelRaw.trim();
+    if (!label || amountCents <= 0) {
+      Alert.alert('Missing Details', 'Add a label and amount for this income event.');
+      return;
+    }
+    const dayOfMonth = Math.max(1, Math.min(31, parseInt(dayRaw, 10) || 1));
+    await upsertScheduledIncomeEvent({
+      id: editingId || undefined,
+      label,
+      amountCents,
+      frequency,
+      dayOfMonth,
+      accountKey: accountKey || defaultAccountKey || null,
+      isActive: true,
+    });
+    recomputeVariance();
+    resetForm();
+    Alert.alert('Saved', 'Scheduled income updated.');
+  };
+
+  const handleRemove = (event) => {
+    Alert.alert('Remove Income Event', `Remove ${event.label || 'this income event'}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => removeScheduledIncomeEvent(event.id) },
+    ]);
+  };
+
+  const accountLabel = (key) => {
+    const found = activeAccounts.find(a => (a.legacyKey || a.id) === key || a.id === key);
+    return found ? (found.name || found.id) : 'Unassigned';
   };
 
   return (
     <View>
-      <Text style={styles.sectionHeader}>PARTNER DEPOSIT</Text>
-      <Text style={styles.label}>Expected amount</Text>
+      <Text style={styles.sectionHeader}>SCHEDULED INCOME</Text>
+      {scheduled.length === 0 && (
+        <Text style={styles.emptyText}>No recurring income events configured.</Text>
+      )}
+      {scheduled.map(event => (
+        <View key={event.id} style={styles.eventCard}>
+          <View style={styles.eventTopRow}>
+            <View style={styles.eventTextWrap}>
+              <Text style={styles.eventLabel}>{(event.label || 'Income').toUpperCase()}</Text>
+              <Text style={styles.eventMeta}>
+                {formatCentsShort(event.amountCents || 0)} - {event.frequency || 'monthly'} - day {event.dayOfMonth || 1}
+              </Text>
+              <Text style={styles.eventMeta}>{accountLabel(event.accountKey)}</Text>
+            </View>
+            <TouchableOpacity style={styles.textBtn} onPress={() => handleEdit(event)}>
+              <Text style={styles.textBtnLabel}>EDIT</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.confirmBtn} onPress={() => recordScheduledIncomeEvent(event.id)}>
+              <Text style={styles.confirmBtnText}>CONFIRM RECEIVED</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(event)}>
+              <Text style={styles.removeBtnText}>REMOVE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      <Text style={styles.label}>{editingId ? 'Edit income label' : 'New income label'}</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="e.g. Paycheck, Partner deposit, Patreon"
+        placeholderTextColor={theme.textDim}
+        value={labelRaw}
+        onChangeText={setLabelRaw}
+      />
+      <Text style={styles.label}>Amount</Text>
       <TextInput
         style={styles.input}
         placeholder="e.g. 500.00"
         placeholderTextColor={theme.textDim}
         keyboardType="decimal-pad"
-        value={depositAmtRaw}
-        onChangeText={setDepositAmtRaw}
+        value={amountRaw}
+        onChangeText={setAmountRaw}
       />
-      {depositAmtRaw.length > 0 && (
-        <Text style={styles.previewText}>{formatCentsShort(parseBillInput(depositAmtRaw))}</Text>
+      {amountRaw.length > 0 && (
+        <Text style={styles.previewText}>{formatCentsShort(parseBillInput(amountRaw))}</Text>
       )}
-      <Text style={styles.label}>Expected schedule</Text>
-      <SegmentedControl options={SCHEDULE_OPTIONS} value={depositSchedule} onChange={setDepositSchedule} />
+      <Text style={styles.label}>Frequency</Text>
+      <SegmentedControl options={FREQ_OPTIONS} value={frequency} onChange={setFrequency} />
+      {frequency !== 'unscheduled' && (
+        <>
+          <Text style={styles.label}>Day of month / anchor day</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1-31"
+            placeholderTextColor={theme.textDim}
+            keyboardType="numeric"
+            maxLength={2}
+            value={dayRaw}
+            onChangeText={text => setDayRaw(text.replace(/[^0-9]/g, ''))}
+          />
+        </>
+      )}
+      {activeAccounts.length > 0 && (
+        <>
+          <Text style={styles.label}>Destination account</Text>
+          <View style={styles.segRow}>
+            {activeAccounts.map(account => {
+              const key = account.legacyKey || account.id;
+              return (
+                <TouchableOpacity
+                  key={account.id}
+                  style={[styles.segBtn, accountKey === key && styles.segBtnActive]}
+                  onPress={() => setAccountKey(key)}
+                >
+                  <Text style={[styles.segText, accountKey === key && styles.segTextActive]}>
+                    {(account.name || account.id).toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
       <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-        <Text style={styles.saveBtnText}>SAVE</Text>
+        <Text style={styles.saveBtnText}>{editingId ? 'SAVE CHANGES' : 'ADD INCOME EVENT'}</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.confirmBtn, depositConfirmedThisMonth && styles.confirmBtnDisabled]}
-        onPress={depositConfirmedThisMonth ? undefined : handleConfirmReceived}
-        disabled={depositConfirmedThisMonth}
-      >
-        <Text style={[styles.confirmBtnText, depositConfirmedThisMonth && styles.confirmBtnTextDisabled]}>
-          CONFIRM RECEIVED
-        </Text>
-      </TouchableOpacity>
-      <Text style={styles.lastConfirmedText}>
-        {depositConfirmedThisMonth
-          ? `Last confirmed: ${lastConfirmedDate || 'this month'}`
-          : 'Not confirmed this month'}
-      </Text>
+      {editingId && (
+        <TouchableOpacity style={styles.cancelBtn} onPress={resetForm}>
+          <Text style={styles.cancelBtnText}>CANCEL EDIT</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   sectionHeader: { color: theme.accent, fontSize: theme.fontSizeLG, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: theme.spacingMD, letterSpacing: 1 },
+  emptyText: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, marginBottom: theme.spacingMD, fontStyle: 'italic' },
+  eventCard: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingSM, marginBottom: theme.spacingSM, backgroundColor: theme.backgroundPanel },
+  eventTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: theme.spacingSM },
+  eventTextWrap: { flex: 1 },
+  eventLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, fontWeight: 'bold' },
+  eventMeta: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, marginTop: 2 },
+  textBtn: { paddingHorizontal: theme.spacingSM, paddingVertical: theme.spacingXS },
+  textBtnLabel: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, fontWeight: 'bold' },
+  actionRow: { flexDirection: 'row', gap: theme.spacingSM, marginTop: theme.spacingSM },
+  confirmBtn: { flex: 1, borderWidth: 1, borderColor: theme.accent, borderRadius: theme.borderRadiusSM, paddingVertical: theme.spacingXS, alignItems: 'center', backgroundColor: theme.accentGlow },
+  confirmBtnText: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, fontWeight: 'bold' },
+  removeBtn: { borderWidth: 1, borderColor: theme.statusDanger, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingSM, paddingVertical: theme.spacingXS, alignItems: 'center' },
+  removeBtnText: { color: theme.statusDanger, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, fontWeight: 'bold' },
   label: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS, marginTop: theme.spacingSM },
   input: { backgroundColor: theme.backgroundPanel, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, marginBottom: theme.spacingXS },
   previewText: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, marginBottom: theme.spacingSM },
@@ -117,9 +229,6 @@ const styles = StyleSheet.create({
   segTextActive: { color: theme.accent, fontWeight: 'bold' },
   saveBtn: { backgroundColor: theme.accent, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center', marginTop: theme.spacingMD },
   saveBtnText: { color: theme.background, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
-  confirmBtn: { borderWidth: 1, borderColor: theme.accent, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center', marginTop: theme.spacingMD },
-  confirmBtnDisabled: { borderColor: theme.borderColorDim, opacity: 0.5 },
-  confirmBtnText: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
-  confirmBtnTextDisabled: { color: theme.textDim },
-  lastConfirmedText: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, marginTop: theme.spacingSM, textAlign: 'center' },
+  cancelBtn: { borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center', marginTop: theme.spacingSM },
+  cancelBtnText: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, fontWeight: 'bold' },
 });

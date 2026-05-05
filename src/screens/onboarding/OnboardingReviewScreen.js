@@ -100,7 +100,7 @@ export default function OnboardingReviewScreen({ navigation }) {
 
         <Section title={`ACCOUNTS (${wizardAccounts.length})`} onEdit={() => navigation.navigate('OnboardingAccounts')}>
           {wizardAccounts.length === 0
-            ? <Text style={styles.emptyNote}>No accounts added — using defaults</Text>
+            ? <Text style={styles.emptyNote}>No accounts added</Text>
             : wizardAccounts.map((a) => (
               <Row key={a.id} label={a.name} value={`${a.type.toUpperCase()} · ${formatCentsShort(a.initialBalanceCents)}`} />
             ))
@@ -120,9 +120,12 @@ export default function OnboardingReviewScreen({ navigation }) {
         <Section title={`BILLS (${bills.length})`} onEdit={() => navigation.navigate('OnboardingBills')}>
           {bills.length === 0
             ? <Text style={styles.emptyNote}>No bills added</Text>
-            : bills.map((b) => (
-              <Row key={b.id} label={b.name} value={`${formatCentsShort(b.amountCents)} · day ${b.dueDay}`} />
-            ))
+            : bills.map((b) => {
+              const isFixed = b.amountType === 'static' || b.isStaticAmount === true;
+              const mode = isFixed ? (b.autoPostEnabled ? 'Auto-Post' : 'manual confirmation') : 'variable amount';
+              const type = b.billType === 'subscription' || b.kind === 'subscription' ? 'Subscription' : 'Bill';
+              return <Row key={b.id} label={b.name} value={`${type} - ${formatCentsShort(b.amountCents)} - day ${b.dueDay} - ${mode}`} />;
+            })
           }
         </Section>
 

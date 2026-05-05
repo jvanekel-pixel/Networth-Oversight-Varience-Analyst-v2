@@ -1,14 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, StyleSheet, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import theme from '../config/theme.config';
+import personality from '../config/personality.config';
 import useStore from '../store/useStore';
-import { formatCents, formatCentsShort, parseCentsInput, parseBillInput } from '../utils/currency';
+import { formatCents, formatCentsShort, formatCentsWholeFloor, parseCentsInput, parseBillInput } from '../utils/currency';
 import { formatDate, timeAgo } from '../utils/dates';
-import { LogTransactionModal, EditBalanceModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
-import LogMassageIncomeModal from '../components/modals/LogMassageIncomeModal';
+import { LogTransactionModal, EditBalanceModal, TransferModal, AddBillModal, MarkPaidModal, EditBillModal, EditTransactionModal } from '../components/TransactionModal';
 import GroceryBudgetCard from '../components/GroceryBudgetCard';
-import SavingsGoalCard from '../components/SavingsGoalCard';
+import SavingsGoalsCard from '../components/SavingsGoalsCard';
 import CardOrderSheet from '../components/settings/CardOrderSheet';
+import CardOrderLink from '../components/settings/CardOrderLink';
+import SpendingChartsSection from '../components/SpendingChartsSection';
+import SpendingCategoryManagerCard from '../components/SpendingCategoryManagerCard';
+import ReceiptAttachmentsCard, { TransactionReceiptModal } from '../components/ReceiptAttachmentsCard';
+import RecurringTransactionsCard from '../components/RecurringTransactionsCard';
+import { SAVINGS_GOALS_CARD_ID, savingsGoalsForScope } from '../utils/savingsGoals';
+import { RECURRING_TRANSACTIONS_CARD_ID } from '../utils/recurringTransactions';
+import CashFlowForecastCard from '../components/CashFlowForecastCard';
+import TourCueCard from '../components/TourCueCard';
+import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
+import { submitTransactionPayload } from '../utils/splitTransactions';
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -16,11 +28,27 @@ function ordinalDay(day) {
   return `${day}${s[day % 10] || s[0]}`;
 }
 
+function scheduledItemLabel(item) {
+  return String(item?.billType || item?.kind || '').toLowerCase().includes('subscription')
+    ? 'Subscription'
+    : 'Bill';
+}
+
+function billAutoPostEnabled(bill) {
+  if (!(bill?.amountType === 'static' || bill?.isStaticAmount === true)) return false;
+  if (bill?.autoPostEnabled !== undefined) return bill.autoPostEnabled === true;
+  if (bill?.isAutoPost !== undefined) return bill.isAutoPost === true;
+  if (bill?.isAutoDraft !== undefined) return bill.isAutoDraft !== false;
+  return true;
+}
+
 function Card({ children, style }) {
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
-function PaycheckModal({ visible, splits, onSubmit, onClose }) {
+const searchCopy = personality.transactionSearch;
+
+function PaycheckModal({ visible, splits, paydayStreak, onSubmit, onClose }) {
   const [splitRaws, setSplitRaws] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -55,6 +83,9 @@ function PaycheckModal({ visible, splits, onSubmit, onClose }) {
         <View style={styles.modalPanel}>
           <Text style={styles.modalTitle}>CONFIRM DEPOSIT AMOUNTS</Text>
           <Text style={styles.modalSub}>Adjust if needed (OT, garnishment, etc.)</Text>
+          <Text style={styles.modalStreak}>
+            Payday streak: {paydayStreak?.current || 0} confirmed / {paydayStreak?.consecutiveOnTime || 0} on time
+          </Text>
           {(splits || []).map((split, i) => (
             <View key={split.id} style={styles.splitRow}>
               <Text style={styles.splitLabel}>{split.label}</Text>
@@ -88,11 +119,11 @@ function PaycheckModal({ visible, splits, onSubmit, onClose }) {
   );
 }
 
-function AccountCard({ account, balance, floorCents, onIncome, onExpense, onEditBal }) {
+function AccountCard({ account, balance, floorCents, onIncome, onExpense, onTransfer, onEditBal }) {
   return (
     <Card>
       <Text style={styles.cardLabel}>{(account.name || account.id).toUpperCase()}</Text>
-      <Text style={styles.balanceText}>{formatCentsShort(balance)}</Text>
+      <Text style={styles.balanceText}>{formatCentsWholeFloor(balance)}</Text>
       {floorCents > 0 && (
         <Text style={styles.floorText}>Floor: {formatCents(floorCents)}</Text>
       )}
@@ -103,6 +134,9 @@ function AccountCard({ account, balance, floorCents, onIncome, onExpense, onEdit
         <TouchableOpacity style={styles.btnExpense} onPress={onExpense}>
           <Text style={styles.btnText}>LOG EXPENSE</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.btnDim} onPress={onTransfer}>
+          <Text style={styles.btnDimText}>TRANSFER</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.btnDim} onPress={onEditBal}>
           <Text style={styles.btnDimText}>EDIT BAL</Text>
         </TouchableOpacity>
@@ -111,18 +145,24 @@ function AccountCard({ account, balance, floorCents, onIncome, onExpense, onEdit
   );
 }
 
-function PayCycleSummaryCard({ incomeEvents, paycheckSplits, accountRegistry, onRecordPaycheck }) {
+function PayCycleSummaryCard({ incomeEvents, paycheckSplits, accountRegistry, paydayStreak, onRecordPaycheck }) {
   const nextDate = incomeEvents?.nextPaycheckDate;
   const isEmpty = !paycheckSplits || paycheckSplits.length === 0;
   return (
     <Card>
-      <Text style={styles.cardLabel}>PAY CYCLE</Text>
+      <Text style={styles.cardLabel}>INCOME CYCLE</Text>
       <Text style={styles.metaText}>
-        Next paycheck: {nextDate ? formatDate(nextDate) : 'Not set'}
+        Next income: {nextDate ? formatDate(nextDate) : 'Not set'}
       </Text>
+      <View style={styles.paydayStreakRow}>
+        <Text style={styles.paydayStreakLabel}>PAYDAY STREAK</Text>
+        <Text style={styles.paydayStreakValue}>
+          {paydayStreak?.current || 0} confirmed / {paydayStreak?.consecutiveOnTime || 0} on time
+        </Text>
+      </View>
       {isEmpty ? (
         <Text style={[styles.metaText, { color: theme.textDim, marginTop: 4 }]}>
-          Paycheck split not configured — set up in Settings.
+          Income split not configured - set up in Settings.
         </Text>
       ) : (
         <View style={styles.distPreview}>
@@ -141,14 +181,15 @@ function PayCycleSummaryCard({ incomeEvents, paycheckSplits, accountRegistry, on
       )}
       {!isEmpty && (
         <TouchableOpacity style={[styles.btnIncome, { marginTop: theme.spacingSM }]} onPress={onRecordPaycheck}>
-          <Text style={styles.btnText}>RECORD PAYCHECK</Text>
+          <Text style={styles.btnText}>RECORD INCOME</Text>
         </TouchableOpacity>
       )}
     </Card>
   );
 }
 
-export default function PersonalScreen() {
+export default function PersonalScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const {
     accounts,
     accountFloors,
@@ -157,11 +198,10 @@ export default function PersonalScreen() {
     billOverrides,
     warnings,
     transactions,
-    massageIncome,
     postPaydayActions,
+    streakData,
     novaConfig,
     accountRegistry,
-    spendingBuckets,
     personalCardOrder,
     personalHiddenCards,
     updatePersonalCardOrder,
@@ -175,9 +215,8 @@ export default function PersonalScreen() {
     deleteBill,
     editTransaction,
     deleteTransaction,
-    editMassageIncome,
-    deleteMassageIncome,
-    dismissPostPaydayAction,
+    transferBetweenAccounts,
+    completePostPaydayAction,
     checkSpendingFloors,
   } = useStore();
   const personalVariance = useStore((s) => s.varianceCache.personal);
@@ -201,12 +240,12 @@ export default function PersonalScreen() {
   const [markPaidBill, setMarkPaidBill] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
+  const [receiptTx, setReceiptTx] = useState(null);
   const [activityMenuTx, setActivityMenuTx] = useState(null);
-  const [editingMassageIncome, setEditingMassageIncome] = useState(null);
   const [cardOrderVisible, setCardOrderVisible] = useState(false);
 
   const handleDeleteBill = (billId) => {
-    Alert.alert('Delete Subscription', 'Remove this recurring subscription?', [
+    Alert.alert('Delete Scheduled Item', 'Remove this bill or subscription?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteBill(billId) },
     ]);
@@ -228,15 +267,21 @@ export default function PersonalScreen() {
 
   const sortedBills = [...(personalBills || [])].filter(b => b.isActive !== false).sort((a, b) => (a.dueDay || a.expectedDay || 0) - (b.dueDay || b.expectedDay || 0));
 
-  const handleTxSubmit = async ({ amountCents, category, description }) => {
+  const handleTxSubmit = async (payload) => {
     const { accountKey } = activeModal;
-    await logTransaction({ accountKey, amountCents, category, description });
+    const result = await submitTransactionPayload(logTransaction, payload, accountKey);
     checkSpendingFloors();
+    return result;
   };
 
   const handleEditBalance = async (cents) => {
     const { accountKey } = activeModal;
     await updateAccountBalance(accountKey, cents);
+    checkSpendingFloors();
+  };
+
+  const handleTransfer = async (transfer) => {
+    await transferBetweenAccounts(transfer);
     checkSpendingFloors();
   };
 
@@ -249,30 +294,33 @@ export default function PersonalScreen() {
 
   const actionsNow = Date.now();
   const pendingActions = (postPaydayActions || []).filter(a => !a.completed && actionsNow < a.expiresAt);
-  const hasGroceriesBucket = (spendingBuckets || []).some((b) => b.isActive !== false && b.type === 'groceries');
-  const savingsGoal = novaConfig?.savingsGoal || null;
-  const savingsGoalAccount = savingsGoal?.accountId
-    ? (accountRegistry || []).find((a) => (a.legacyKey || a.id) === savingsGoal.accountId || a.id === savingsGoal.accountId)
-    : null;
-  const savingsGoalAccountKey = savingsGoalAccount ? (savingsGoalAccount.legacyKey || savingsGoalAccount.id) : null;
-  const savingsGoalVisible = !!(savingsGoal?.targetCents > 0);
-  const isSoloGroceryVisible = novaConfig?.userMode === 'solo' && hasGroceriesBucket;
+  const personalSavingsGoals = savingsGoalsForScope(novaConfig?.savingsGoals, 'personal');
   const activeCardIds = [
     'variance',
+    CASH_FLOW_FORECAST_CARD_ID,
+    'spending_chart',
+    'spending_categories',
     'accounts',
     'pay_cycle',
-    ...(savingsGoalVisible ? ['savings_goal'] : []),
+    RECURRING_TRANSACTIONS_CARD_ID,
+    SAVINGS_GOALS_CARD_ID,
     'bills',
-    ...(isSoloGroceryVisible ? ['grocery'] : []),
+    'grocery',
+    'receipt_attachments',
     'recent_activity',
   ];
   const personalDisplayCards = [
     { id: 'variance', label: 'Variance Summary' },
+    { id: CASH_FLOW_FORECAST_CARD_ID, label: 'Cash-Flow Forecast' },
+    { id: 'spending_chart', label: 'Spending Chart' },
+    { id: 'spending_categories', label: 'Spending Categories' },
     { id: 'accounts', label: 'Account Balances' },
     { id: 'pay_cycle', label: 'Pay Cycle' },
-    ...(savingsGoalVisible ? [{ id: 'savings_goal', label: 'Savings Goal' }] : []),
+    { id: RECURRING_TRANSACTIONS_CARD_ID, label: 'Recurring Items' },
+    { id: SAVINGS_GOALS_CARD_ID, label: 'Savings Goals' },
     { id: 'bills', label: 'Bills & Subscriptions' },
-    ...(isSoloGroceryVisible ? [{ id: 'grocery', label: 'Grocery Budget' }] : []),
+    { id: 'grocery', label: 'Grocery Spending' },
+    { id: 'receipt_attachments', label: 'Receipt Photos' },
     { id: 'recent_activity', label: 'Recent Activity' },
   ];
   const orderedPersonalCards = [
@@ -299,6 +347,7 @@ export default function PersonalScreen() {
             <TouchableOpacity
               key={tx.id}
               style={styles.activityRow}
+              onPress={() => setReceiptTx(tx)}
               onLongPress={() => setActivityMenuTx(tx)}
               delayLongPress={400}
             >
@@ -318,40 +367,44 @@ export default function PersonalScreen() {
 
   const renderBillsCard = () => (
     <Card>
-      <Text style={styles.cardLabel}>RECURRING SUBSCRIPTIONS</Text>
+      <Text style={styles.cardLabel}>SCHEDULED BILLS & SUBSCRIPTIONS</Text>
       {sortedBills.length === 0 && (
         <Text style={[styles.metaText, { marginBottom: theme.spacingSM }]}>No subscriptions added yet.</Text>
       )}
       {sortedBills.map(bill => {
-        const paidThisMonth = billOverrides[bill.id]?.lastPaidMonth === currentMonth;
+        const paidRecord = billOverrides[bill.id] || {};
+        const paidThisMonth = paidRecord.lastPaidMonth === currentMonth || bill.lastPaidMonth === currentMonth;
+        const isStatic = bill.amountType === 'static' || bill.isStaticAmount === true;
+        const autoPost = billAutoPostEnabled(bill);
+        const paidLabel = paidRecord.autoPosted || bill.lastPaidSource === 'auto_static' ? 'AUTO-POSTED' : 'PAID';
         return (
           <View key={bill.id} style={styles.billRow}>
             <View style={styles.billInfo}>
               <Text style={styles.billName}>{bill.name}</Text>
-              <Text style={styles.billMeta}>{formatCents(bill.amountCents)} · Due {ordinalDay(bill.dueDay || bill.expectedDay)} · {(() => {
+              <Text style={styles.billMeta}>{scheduledItemLabel(bill)} - {formatCents(bill.amountCents)} - Due {ordinalDay(bill.dueDay || bill.expectedDay)} - {(() => {
                 const key = bill.defaultAccountKey;
                 if (!key) return 'Unassigned';
                 const found = personalAccounts.find(a => (a.legacyKey || a.id) === key);
                 return found ? (found.name || found.id) : 'Unassigned';
               })()}</Text>
+              <Text style={styles.billMeta}>{isStatic ? `Fixed amount - ${autoPost ? 'Auto-Post on' : 'manual confirmation'}` : 'Variable amount - manual confirmation'}</Text>
             </View>
             <View style={styles.billActions}>
               <TouchableOpacity style={styles.editBtn} onPress={() => setEditingBill(bill)}>
                 <Text style={styles.editBtnText}>EDIT</Text>
               </TouchableOpacity>
-              {paidThisMonth ? (
-                <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>✓ PAID</Text>
-              ) : (
-                <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
-                  <Text style={styles.markPaidText}>MARK PAID</Text>
-                </TouchableOpacity>
+              {paidThisMonth && (
+                <Text style={[styles.paidLabel, { marginLeft: theme.spacingXS }]}>{paidLabel}</Text>
               )}
+              <TouchableOpacity style={[styles.markPaidBtn, { marginLeft: theme.spacingXS }]} onPress={() => setMarkPaidBill(bill)}>
+                <Text style={styles.markPaidText}>MARK PAID</Text>
+              </TouchableOpacity>
             </View>
           </View>
         );
       })}
       <TouchableOpacity style={styles.addBillBtn} onPress={() => setAddBillVisible(true)}>
-        <Text style={styles.addBillText}>+ ADD SUBSCRIPTION</Text>
+        <Text style={styles.addBillText}>+ ADD BILL / SUBSCRIPTION</Text>
       </TouchableOpacity>
     </Card>
   );
@@ -373,6 +426,9 @@ export default function PersonalScreen() {
         </View>
       );
     }
+    if (id === CASH_FLOW_FORECAST_CARD_ID) return <CashFlowForecastCard profile="personal" title="PERSONAL CASH-FLOW FORECAST" />;
+    if (id === 'spending_chart') return <SpendingChartsSection profile="personal" />;
+    if (id === 'spending_categories') return <SpendingCategoryManagerCard profile="personal" />;
     if (id === 'accounts') {
       return (
         <>
@@ -392,6 +448,7 @@ export default function PersonalScreen() {
                 floorCents={getFloor(key)}
                 onIncome={() => setActiveModal({ accountKey: key, modalType: 'income' })}
                 onExpense={() => setActiveModal({ accountKey: key, modalType: 'expense' })}
+                onTransfer={() => setActiveModal({ accountKey: key, modalType: 'transfer' })}
                 onEditBal={() => setActiveModal({ accountKey: key, modalType: 'edit' })}
               />
             );
@@ -405,37 +462,60 @@ export default function PersonalScreen() {
           incomeEvents={incomeEvents}
           paycheckSplits={novaConfig?.paycheckSplits}
           accountRegistry={accountRegistry}
+          paydayStreak={streakData?.paydayStreak}
           onRecordPaycheck={() => setPaycheckVisible(true)}
         />
       );
     }
-    if (id === 'savings_goal') {
+    if (id === SAVINGS_GOALS_CARD_ID) {
       return (
-        <SavingsGoalCard
-          goalLabel={savingsGoal?.label}
-          targetCents={savingsGoal?.targetCents}
-          currentCents={savingsGoalAccountKey ? (accounts[savingsGoalAccountKey] || 0) : null}
-          accountDisplayName={savingsGoalAccount ? (savingsGoalAccount.name || savingsGoalAccount.id) : null}
+        <SavingsGoalsCard
+          goals={personalSavingsGoals}
+          accounts={accounts}
+          accountRegistry={accountRegistry}
+          scope="personal"
+          title="SAVINGS GOALS"
+        />
+      );
+    }
+    if (id === RECURRING_TRANSACTIONS_CARD_ID) {
+      return (
+        <RecurringTransactionsCard
+          scope="personal"
+          accountOptions={personalAccountOptions}
+          title="RECURRING ITEMS"
         />
       );
     }
     if (id === 'bills') return renderBillsCard();
-    if (id === 'grocery') return <GroceryBudgetCard />;
+    if (id === 'grocery') return <GroceryBudgetCard profile="personal" />;
+    if (id === 'receipt_attachments') {
+      return (
+        <ReceiptAttachmentsCard
+          title="RECEIPT PHOTOS"
+          transactions={(transactions || []).filter(t => personalAccountKeys.includes(t.accountKey))}
+          getAccountLabel={(tx) => getAccountName(tx.accountKey)}
+        />
+      );
+    }
     if (id === 'recent_activity') return renderRecentActivityCard();
     return null;
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
+    >
 
-      {/* Post-Payday Actions */}
+      {/* Post-Income Actions */}
       {pendingActions.length > 0 && (
         <View style={styles.postPaydayCard}>
-          <Text style={styles.postPaydayHeader}>POST-PAYDAY ACTIONS</Text>
+          <Text style={styles.postPaydayHeader}>POST-INCOME ACTIONS</Text>
           {pendingActions.map(action => (
             <View key={action.id} style={styles.postPaydayRow}>
               <Text style={styles.postPaydayLabel}>{action.label}</Text>
-              <TouchableOpacity style={styles.postPaydayBtn} onPress={() => dismissPostPaydayAction(action.id)}>
+              <TouchableOpacity style={styles.postPaydayBtn} onPress={() => completePostPaydayAction(action.id)}>
                 <Text style={styles.postPaydayBtnText}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -445,9 +525,33 @@ export default function PersonalScreen() {
 
       {/* 1. Header strip */}
       <View style={styles.headerStrip}>
-        <Text style={styles.screenTitle}>PERSONAL</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.screenTitle}>PERSONAL</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.searchBtn}
+              onPress={() => navigation?.navigate('TransactionSearch', { initialFilters: { accountKeys: personalAccountKeys } })}
+            >
+              <Text style={styles.searchBtnText}>{searchCopy.searchIcon}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.calendarBtn}
+              onPress={() => navigation?.navigate('Calendar', { mode: 'personal' })}
+            >
+              <Text style={styles.calendarBtnText}>VIEW CALENDAR</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         <Text style={styles.screenSubtitle}>Personal Accounts + Pay Cycle</Text>
       </View>
+
+      <TourCueCard
+        cueId="personal_tools"
+        title="Your personal math lives here."
+        body="Log income or expenses, move numbers between accounts, confirm deposits, watch the forecast, set goals, manage grocery tracking, and reorder cards when the default layout becomes annoying."
+        actionLabel="VIEW CALENDAR"
+        onAction={() => navigation?.navigate('Calendar', { mode: 'personal' })}
+      />
 
       {/* Floor warnings */}
       {personalWarnings.length > 0 && (
@@ -468,61 +572,32 @@ export default function PersonalScreen() {
           </React.Fragment>
         ))}
 
-      {/* Card Order row */}
-      <TouchableOpacity style={styles.cardOrderRow} onPress={() => setCardOrderVisible(true)}>
-        <Text style={styles.cardOrderLabel}>Card Order</Text>
-        <Text style={styles.cardOrderChevron}>›</Text>
-      </TouchableOpacity>
+      <CardOrderLink onPress={() => setCardOrderVisible(true)} />
 
       {/* Activity action menu */}
       <Modal visible={activityMenuTx !== null} transparent animationType="fade" onRequestClose={() => setActivityMenuTx(null)}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => setActivityMenuTx(null)}>
           <View style={styles.modalPanel}>
-            {activityMenuTx?.source === 'massage' ? (
-              <>
-                <TouchableOpacity style={styles.menuItem} onPress={() => {
-                  const sourceEntry = (massageIncome || []).find(r => r.id === activityMenuTx.sourceId && !r.deleted);
-                  setActivityMenuTx(null);
-                  if (sourceEntry) setEditingMassageIncome(sourceEntry);
-                }}>
-                  <Text style={styles.menuItemText}>EDIT MASSAGE INCOME</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.menuItem} onPress={() => {
-                  const sourceId = activityMenuTx.sourceId;
-                  setActivityMenuTx(null);
-                  Alert.alert(
-                    'Delete Massage Income?',
-                    'This will reverse the balance from the destination account.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteMassageIncome(sourceId) },
-                    ]
-                  );
-                }}>
-                  <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE MASSAGE INCOME</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
-                  <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.menuItem} onPress={() => {
-                  const tx = activityMenuTx;
-                  setActivityMenuTx(null);
-                  Alert.alert(
-                    'Delete Transaction',
-                    'Delete this transaction? Account balance will be adjusted.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
-                    ]
-                  );
-                }}>
-                  <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setReceiptTx(activityMenuTx); setActivityMenuTx(null); }}>
+              <Text style={styles.menuItemText}>VIEW / ADD RECEIPT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setEditingTx(activityMenuTx); setActivityMenuTx(null); }}>
+              <Text style={styles.menuItemText}>EDIT TRANSACTION</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              const tx = activityMenuTx;
+              setActivityMenuTx(null);
+              Alert.alert(
+                'Delete Transaction',
+                'Delete this transaction? Account balance will be adjusted.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+                ]
+              );
+            }}>
+              <Text style={[styles.menuItemText, { color: theme.statusDanger }]}>DELETE TRANSACTION</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -532,24 +607,38 @@ export default function PersonalScreen() {
         visible={activeModal.modalType === 'income' || activeModal.modalType === 'expense'}
         type={activeModal.modalType}
         accountName={getAccountName(activeModal.accountKey)}
+        profile="personal"
+        defaultAccountKey={activeModal.accountKey}
+        accountOptions={personalAccountOptions}
         onSubmit={handleTxSubmit}
         onClose={closeModal}
       />
       <EditBalanceModal
         visible={activeModal.modalType === 'edit'}
         accountName={getAccountName(activeModal.accountKey)}
+        currentBalanceCents={accounts[activeModal.accountKey] || 0}
         onSubmit={handleEditBalance}
+        onClose={closeModal}
+      />
+      <TransferModal
+        visible={activeModal.modalType === 'transfer'}
+        fromAccountKey={activeModal.accountKey}
+        accountOptions={personalAccountOptions}
+        profile="personal"
+        onSubmit={handleTransfer}
         onClose={closeModal}
       />
       <PaycheckModal
         visible={paycheckVisible}
         splits={novaConfig?.paycheckSplits}
+        paydayStreak={streakData?.paydayStreak}
         onSubmit={handlePaycheck}
         onClose={() => setPaycheckVisible(false)}
       />
       <AddBillModal
         visible={addBillVisible}
         accountOptions={personalAccountOptions}
+        profile="personal"
         onSubmit={async (bill) => { await addPersonalBill(bill); }}
         onClose={() => setAddBillVisible(false)}
       />
@@ -568,6 +657,7 @@ export default function PersonalScreen() {
         visible={editingBill !== null}
         bill={editingBill}
         accountOptions={personalAccountOptions}
+        profile="personal"
         onSubmit={async (updates) => {
           await editBill(editingBill.id, updates);
           setEditingBill(null);
@@ -578,14 +668,15 @@ export default function PersonalScreen() {
       <EditTransactionModal
         visible={editingTx !== null}
         transaction={editingTx}
+        profile="personal"
+        accountOptions={personalAccountOptions}
         onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
         onClose={() => setEditingTx(null)}
       />
-      <LogMassageIncomeModal
-        visible={editingMassageIncome !== null}
-        entry={editingMassageIncome}
-        onClose={() => setEditingMassageIncome(null)}
-        onConfirm={(record) => { if (editingMassageIncome) { editMassageIncome(editingMassageIncome.id, record); setEditingMassageIncome(null); } }}
+      <TransactionReceiptModal
+        visible={receiptTx !== null}
+        transaction={receiptTx}
+        onClose={() => setReceiptTx(null)}
       />
       <CardOrderSheet
         visible={cardOrderVisible}
@@ -610,16 +701,60 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingVertical: theme.spacingMD,
-    paddingBottom: theme.spacingXXL,
+    paddingHorizontal: theme.spacingMD,
   },
   headerStrip: {
     marginBottom: theme.spacingMD,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacingMD,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacingXS,
+  },
+  searchBtn: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.accent,
+    borderRadius: theme.borderRadiusSM,
+    backgroundColor: theme.accentGlow,
+  },
+  searchBtnText: {
+    color: theme.accent,
+    fontSize: theme.fontSizeLG,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
+  },
+  calendarBtn: {
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+    borderRadius: theme.borderRadiusSM,
+    paddingHorizontal: theme.spacingSM,
+    backgroundColor: theme.backgroundCard,
+  },
+  calendarBtnText: {
+    color: theme.accent,
+    fontSize: theme.fontSizeXS,
+    fontFamily: theme.fontPrimary,
+    fontWeight: 'bold',
   },
   screenTitle: {
     color: theme.accent,
     fontSize: theme.fontSizeXL,
     fontFamily: theme.fontPrimary,
     fontWeight: 'bold',
+    flexShrink: 1,
   },
   screenSubtitle: {
     color: theme.textSecondary,
@@ -712,6 +847,34 @@ const styles = StyleSheet.create({
     padding: theme.spacingSM,
     marginTop: theme.spacingXS,
     marginBottom: theme.spacingXS,
+  },
+  paydayStreakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacingSM,
+    borderWidth: 1,
+    borderColor: theme.borderColorDim,
+    borderRadius: theme.borderRadiusSM,
+    backgroundColor: theme.backgroundPanel,
+    paddingHorizontal: theme.spacingSM,
+    paddingVertical: theme.spacingXS,
+    marginTop: theme.spacingSM,
+    marginBottom: theme.spacingSM,
+  },
+  paydayStreakLabel: {
+    color: theme.textDim,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeXS,
+    letterSpacing: 1,
+  },
+  paydayStreakValue: {
+    color: theme.accent,
+    fontFamily: theme.fontPrimary,
+    fontSize: theme.fontSizeXS,
+    fontWeight: 'bold',
+    textAlign: 'right',
+    flexShrink: 1,
   },
   distLabel: {
     color: theme.textDim,
@@ -903,6 +1066,12 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     marginBottom: theme.spacingMD,
   },
+  modalStreak: {
+    color: theme.accent,
+    fontSize: theme.fontSizeXS,
+    fontFamily: theme.fontPrimary,
+    marginBottom: theme.spacingMD,
+  },
   modalInput: {
     backgroundColor: theme.backgroundCard,
     borderWidth: 1,
@@ -975,9 +1144,6 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizeSM,
     fontFamily: theme.fontPrimary,
   },
-  cardOrderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacingMD, paddingVertical: theme.spacingMD, marginTop: theme.spacingSM, borderTopWidth: 1, borderTopColor: theme.borderColorDim },
-  cardOrderLabel: { color: theme.textSecondary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
-  cardOrderChevron: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeLG },
   splitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacingXS },
   splitLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, flex: 1 },
   splitInput: { backgroundColor: theme.backgroundCard, borderWidth: 1, borderColor: theme.borderColorDim, borderRadius: theme.borderRadiusMD, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, width: 90, textAlign: 'right' },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { NovaFace } from '../components/NovaHeader';
+import { NovaFace } from '../components/NovaFace';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
 import useStore from '../store/useStore';

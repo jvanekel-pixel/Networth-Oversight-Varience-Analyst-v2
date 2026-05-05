@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g stroke="#00FFD1" stroke-width="1.6" opacity=".72" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M9 19V10H19"/>
+    <path d="M45 10H55V20"/>
+    <path d="M55 45V54H45"/>
+    <path d="M19 54H9V44"/>
+    <path d="M32 5V11M32 53V59M5 32H11M53 32H59"/>
+  </g>
+  <g filter="url(#glow)" stroke="#00FFD1" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="32" cy="32" r="8"/>
+    <circle cx="32" cy="32" r="19" stroke-dasharray="5 4"/>
+    <polygon points="32,13 41,18 51,17 46,27 49,36 39,39 32,51 25,39 15,36 18,27 13,17 23,18"/>
+    <path d="M32 13V24M47 23L38 29M47 41L38 35M32 51V40M17 41L26 35M17 23L26 29"/>
+  </g>
+  <g stroke="#58E7FF" stroke-width="1.45" opacity=".85" fill="none" stroke-linecap="round">
+    <path d="M21 10L17 6M43 10L47 6M21 54L17 58M43 54L47 58"/>
+  </g>
+  <circle cx="32" cy="32" r="2.5" fill="#36FF8F"/>
+</svg>

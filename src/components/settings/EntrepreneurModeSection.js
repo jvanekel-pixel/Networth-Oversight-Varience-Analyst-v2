@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, Switch, TouchableOpacity, StyleSheet, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import theme from '../../config/theme.config';
 import useStore from '../../store/useStore';
@@ -9,10 +9,20 @@ function BusinessEditSheet({ biz, visible, onClose }) {
   const [trackIncome, setTrackIncome] = useState(biz?.trackIncome ?? true);
   const [trackExpenses, setTrackExpenses] = useState(biz?.trackExpenses ?? true);
   const [trackMileage, setTrackMileage] = useState(biz?.trackMileage ?? false);
+  const accountRegistry = useStore((s) => s.accountRegistry);
+  const accountOptions = useMemo(() => {
+    const active = (accountRegistry || []).filter(account => account.isActive !== false);
+    const businessAccounts = active.filter(account => account.role === 'business');
+    const source = businessAccounts.length > 0 ? businessAccounts : active;
+    return source
+      .map(account => ({ key: account.legacyKey || account.id, label: (account.name || account.id).toUpperCase() }))
+      .filter(option => option.key);
+  }, [accountRegistry]);
+  const [defaultAccountKey, setDefaultAccountKey] = useState(biz?.defaultAccountKey || accountOptions[0]?.key || '');
 
   async function handleSave() {
     if (!biz) return;
-    await editBusiness(biz.id, { name: name.trim() || biz.name, trackIncome, trackExpenses, trackMileage });
+    await editBusiness(biz.id, { name: name.trim() || biz.name, trackIncome, trackExpenses, trackMileage, defaultAccountKey: defaultAccountKey || accountOptions[0]?.key || null });
     onClose();
   }
 
@@ -41,6 +51,22 @@ function BusinessEditSheet({ biz, visible, onClose }) {
             <Text style={styles.trackLabel}>Track Mileage</Text>
             <Switch value={trackMileage} onValueChange={setTrackMileage} trackColor={{ false: theme.backgroundPanel, true: theme.accentGlow }} thumbColor={trackMileage ? theme.accent : theme.textDim} />
           </View>
+          {accountOptions.length > 0 && (
+            <>
+              <Text style={styles.fieldLabel}>DEFAULT MONEY ACCOUNT</Text>
+              <View style={styles.chipRow}>
+                {accountOptions.map(opt => (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.chip, defaultAccountKey === opt.key && styles.chipOn]}
+                    onPress={() => setDefaultAccountKey(opt.key)}
+                  >
+                    <Text style={[styles.chipText, defaultAccountKey === opt.key && styles.chipTextOn]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
               <Text style={styles.cancelText}>CANCEL</Text>
@@ -59,6 +85,7 @@ export default function EntrepreneurModeSection() {
   const novaConfig = useStore((s) => s.novaConfig);
   const updateNovaConfig = useStore((s) => s.updateNovaConfig);
   const businesses = useStore((s) => s.businesses);
+  const accountRegistry = useStore((s) => s.accountRegistry);
   const addBusiness = useStore((s) => s.addBusiness);
   const archiveBusiness = useStore((s) => s.archiveBusiness);
   const [editingBiz, setEditingBiz] = useState(null);
@@ -66,6 +93,11 @@ export default function EntrepreneurModeSection() {
 
   const enabled = novaConfig?.entrepreneurMode ?? false;
   const active = (businesses || []).filter((b) => b.isActive !== false);
+  const defaultBusinessAccountKey = (accountRegistry || []).find(a => a.isActive !== false && a.role === 'business')?.legacyKey
+    || (accountRegistry || []).find(a => a.isActive !== false && a.role === 'business')?.id
+    || (accountRegistry || []).find(a => a.isActive !== false)?.legacyKey
+    || (accountRegistry || []).find(a => a.isActive !== false)?.id
+    || null;
 
   async function handleToggle(val) {
     await updateNovaConfig({ entrepreneurMode: val });
@@ -74,7 +106,7 @@ export default function EntrepreneurModeSection() {
   async function handleAdd() {
     const name = newBizName.trim();
     if (!name) return;
-    await addBusiness({ name, trackIncome: true, trackExpenses: true, trackMileage: false });
+    await addBusiness({ name, trackIncome: true, trackExpenses: true, trackMileage: false, defaultAccountKey: defaultBusinessAccountKey });
     setNewBizName('');
   }
 
@@ -154,6 +186,11 @@ const styles = StyleSheet.create({
   input2: { borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusSM, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, backgroundColor: theme.backgroundPanel },
   trackRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: theme.spacingXS },
   trackLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacingXS, marginTop: 2 },
+  chip: { borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingSM, paddingVertical: 4 },
+  chipOn: { borderColor: theme.accent, backgroundColor: theme.accentGlow },
+  chipText: { color: theme.textDim, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
+  chipTextOn: { color: theme.accent },
   actions: { flexDirection: 'row', gap: theme.spacingMD, marginTop: theme.spacingSM },
   cancelBtn: { flex: 1, borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusMD, paddingVertical: theme.spacingMD, alignItems: 'center' },
   cancelText: { color: theme.textDim, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },

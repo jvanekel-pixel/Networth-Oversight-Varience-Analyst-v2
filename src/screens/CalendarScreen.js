@@ -14,13 +14,25 @@ import {
   getGroceryReserveForDate,
 } from '../utils/forecasting';
 import { EditBillModal, EditTransactionModal } from '../components/TransactionModal';
+import {
+  getRecurringTransactionEventsBetween,
+  recurringScopeMatches,
+} from '../utils/recurringTransactions';
 
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const CELL_SIZE = Math.floor(Dimensions.get('window').width / 7);
-const FIXED_ACCOUNT_FLOORS = {
-  jointChecking: 30000,
-  entChecking: 500000,
-};
+const CALENDAR_DOT_TYPES = [
+  { key: 'bill', label: 'Bills', color: theme.calendarBillColor },
+  { key: 'income', label: 'Income', color: theme.calendarIncomeColor },
+  { key: 'tx', label: 'Transactions', color: theme.calendarTransactionColor },
+  { key: 'business', label: 'Business', color: theme.calendarBusinessColor },
+  { key: 'grocery', label: 'Grocery reserve', color: theme.calendarGroceryColor },
+  { key: 'recurring', label: 'Recurring', color: theme.calendarRecurringColor },
+];
+const DEFAULT_VISIBLE_DOT_TYPES = CALENDAR_DOT_TYPES.reduce((acc, type) => {
+  acc[type.key] = true;
+  return acc;
+}, {});
 
 function isSameDayMs(ms1, ms2) {
   const a = new Date(ms1);
@@ -49,8 +61,23 @@ function withAlpha(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function parseRecordDateMs(value) {
+  if (!value) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day, 12, 0, 0, 0).getTime();
+  }
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function getTimestamp(record) {
-  return record?.timestamp || record?.date || record?.createdAt || null;
+  return parseRecordDateMs(record?.timestamp ?? record?.date ?? record?.createdAt ?? null);
 }
 
 function normalizeBusinessEvents(records, type, businessLabel = null) {
@@ -74,6 +101,58 @@ function getAccountKey(account) {
   return account ? (account.legacyKey || account.id) : null;
 }
 
+function scheduledItemLabel(item) {
+  return String(item?.billType || item?.kind || '').toLowerCase().includes('subscription')
+    ? 'Subscription'
+    : 'Bill';
+}
+
+function billAutoPostEnabled(bill) {
+  if (!(bill?.amountType === 'static' || bill?.isStaticAmount === true)) return false;
+  if (bill?.autoPostEnabled !== undefined) return bill.autoPostEnabled === true;
+  if (bill?.isAutoPost !== undefined) return bill.isAutoPost === true;
+  if (bill?.isAutoDraft !== undefined) return bill.isAutoDraft !== false;
+  return true;
+}
+
+function billPostingModeLabel(bill) {
+  const isFixed = bill?.amountType === 'static' || bill?.isStaticAmount === true;
+  if (!isFixed) return 'variable amount - manual confirmation';
+  return billAutoPostEnabled(bill) ? 'fixed amount - Auto-Post on' : 'fixed amount - manual confirmation';
+}
+
+function DotGrid({ bill, income, tx, business, grocery, recurring }) {
+  // Fixed 2×3 grid: top row [bill, income, tx], bottom row [business, grocery, reserved]
+  const slots = [
+    bill     ? 'bill'     : null,
+    income   ? 'income'   : null,
+    tx       ? 'tx'       : null,
+    business ? 'business' : null,
+    grocery  || null,
+    recurring ? 'recurring' : null,
+  ];
+  const dotStyle = (slot) => {
+    if (slot === 'bill')     return styles.dotRed;
+    if (slot === 'income')   return styles.dotGreen;
+    if (slot === 'tx')       return styles.dotBlue;
+    if (slot === 'business') return styles.dotBusiness;
+    if (slot === 'groceryDanger' || slot === 'danger') return styles.dotGroceryDanger;
+    if (slot === 'grocery' || slot === 'accent') return styles.dotGrocery;
+    if (slot === 'recurring') return styles.dotRecurring;
+    return styles.dotEmpty;
+  };
+  return (
+    <View style={styles.dotGrid}>
+      <View style={styles.dotGridRow}>
+        {slots.slice(0, 3).map((s, i) => <View key={i} style={[styles.dot, dotStyle(s)]} />)}
+      </View>
+      <View style={styles.dotGridRow}>
+        {slots.slice(3, 6).map((s, i) => <View key={i} style={[styles.dot, dotStyle(s)]} />)}
+      </View>
+    </View>
+  );
+}
+
 function getModeAccountRoles(mode) {
   if (mode === 'household') return ['household'];
   if (mode === 'personal') return ['personal'];
@@ -82,28 +161,23 @@ function getModeAccountRoles(mode) {
 }
 
 function getFallbackProjection(accounts = {}) {
-  return {
-    jointChecking: accounts.jointChecking || 0,
-    entChecking: accounts.entChecking || 0,
-    entSavings: accounts.entSavings || 0,
-    venmo: accounts.venmo || 0,
-    cash: accounts.cash || 0,
-    cleaningChecking: accounts.cleaningChecking || 0,
-    ...accounts,
-  };
+  return { ...accounts };
 }
 
-function getPrimaryProjectionKey(mode, activeAccounts = []) {
+function getPrimaryProjectionKey(mode, activeAccounts = [], accounts = {}) {
+  const firstActive = getAccountKey(activeAccounts[0]);
+  const firstStored = Object.keys(accounts || {})[0] || null;
+  const fallback = firstActive || firstStored;
   if (mode === 'personal') {
     const personal = activeAccounts.find(account => account.role === 'personal');
-    return getAccountKey(personal) || 'entChecking';
+    return getAccountKey(personal) || fallback;
   }
   if (mode === 'business') {
     const business = activeAccounts.find(account => account.role === 'business');
-    return getAccountKey(business) || 'cleaningChecking';
+    return getAccountKey(business) || null;
   }
   const household = activeAccounts.find(account => account.role === 'household');
-  return getAccountKey(household) || 'jointChecking';
+  return getAccountKey(household) || fallback;
 }
 
 function activeBillFilter(bill) {
@@ -126,9 +200,12 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [editingBill, setEditingBill] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
-  const [groceryReserveOn, setGroceryReserveOn] = useState(true);
+  const [visibleDotTypes, setVisibleDotTypes] = useState(DEFAULT_VISIBLE_DOT_TYPES);
+  const groceryReserveOn = useStore(s => s.groceryReserveOn !== false);
+  const setGroceryReserveOn = useStore(s => s.setGroceryReserveOn);
 
   const mode = modeProp || route?.params?.mode || 'dashboard';
+  const isBusinessMode = mode === 'business';
 
   const {
     accounts,
@@ -136,11 +213,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     personalBills,
     incomeEvents,
     transactions,
-    massageIncome,
-    massageExpenses,
-    cleaningIncome,
-    cleaningExpenses,
-    cleaningMileage,
     genericBusinessIncome,
     genericBusinessExpenses,
     genericBusinessMileage,
@@ -152,6 +224,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     accountFloors,
     novaConfig,
     groceryBudget,
+    personalGroceryBudget,
+    recurringTransactions,
   } = useStore();
 
   const userMode = novaConfig?.userMode ?? null;
@@ -159,14 +233,22 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     () => (accountRegistry || []).filter(a => a.isActive !== false),
     [accountRegistry],
   );
+  const groceryScope = useMemo(() => {
+    if (isBusinessMode) return null;
+    if (mode === 'personal') return 'personal';
+    if (mode === 'household') return 'household';
+    return userMode === 'solo' ? 'personal' : 'household';
+  }, [isBusinessMode, mode, userMode]);
+  const activeGroceryBudget = groceryScope === 'personal'
+    ? personalGroceryBudget
+    : groceryScope === 'household'
+    ? groceryBudget
+    : null;
   const groceryAccountKey = useMemo(() => {
-    if (userMode === 'solo') {
-      const personal = activeAccounts.find(a => a.role === 'personal');
-      return getAccountKey(personal) || 'entChecking';
-    }
-    const household = activeAccounts.find(a => a.role === 'household');
-    return getAccountKey(household) || 'jointChecking';
-  }, [userMode, activeAccounts]);
+    if (!groceryScope) return null;
+    const account = activeAccounts.find(a => a.role === groceryScope);
+    return getAccountKey(account) || getPrimaryProjectionKey(groceryScope, activeAccounts, accounts);
+  }, [groceryScope, activeAccounts, accounts]);
   const accountByKey = useMemo(() => {
     const map = new Map();
     activeAccounts.forEach(account => {
@@ -185,6 +267,14 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     (businesses || []).forEach(business => map.set(business.id, business.name || business.id));
     return map;
   }, [businesses]);
+  const showGroceryReserve = !isBusinessMode && groceryReserveOn && (activeGroceryBudget?.weeklyLimit || 0) > 0;
+  const isDotVisible = (key) => visibleDotTypes[key] !== false;
+  const toggleDotType = (key) => {
+    setVisibleDotTypes(current => ({
+      ...current,
+      [key]: current[key] === false,
+    }));
+  };
 
   const modeRoles = getModeAccountRoles(mode);
   const modeAccountKeys = useMemo(() => {
@@ -194,6 +284,14 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
       .map(getAccountKey)
       .filter(Boolean));
   }, [activeAccounts, modeRoles]);
+  const modeAccountOptions = useMemo(() => {
+    const roles = getModeAccountRoles(mode);
+    return activeAccounts
+      .filter(account => !roles || roles.includes(account.role))
+      .map(a => ({ key: getAccountKey(a), label: (a.name || a.id).toUpperCase() }))
+      .filter(option => option.key);
+  }, [activeAccounts, mode]);
+  const editProfile = mode === 'personal' ? 'personal' : mode === 'household' ? 'household' : mode === 'business' ? 'business' : null;
 
   const allBills = useMemo(() => {
     const activeHousehold = (householdBills || []).filter(activeBillFilter);
@@ -220,24 +318,22 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     householdBills || [],
     personalBills || [],
     incomeEvents || {},
-    massageIncome || [],
-    [],
     accountRegistry || [],
     novaConfig || {},
     userMode,
-  ), [accounts, householdBills, personalBills, incomeEvents, massageIncome, accountRegistry, novaConfig, userMode, todayStart.getTime(), projectionEnd.getTime()]);
+  ), [accounts, householdBills, personalBills, incomeEvents, accountRegistry, novaConfig, userMode, todayStart.getTime(), projectionEnd.getTime()]);
 
   const billEvents = useMemo(() => {
     const activeHousehold = (householdBills || []).filter(activeBillFilter);
     const activePersonal = (personalBills || []).filter(activeBillFilter);
-    const householdEvents = applyBillFallback(getBillEventsBetween(activeHousehold, startMs, endMs), getPrimaryProjectionKey('household', activeAccounts));
-    const personalEvents = applyBillFallback(getBillEventsBetween(activePersonal, startMs, endMs), getPrimaryProjectionKey('personal', activeAccounts));
+    const householdEvents = applyBillFallback(getBillEventsBetween(activeHousehold, startMs, endMs), getPrimaryProjectionKey('household', activeAccounts, accounts));
+    const personalEvents = applyBillFallback(getBillEventsBetween(activePersonal, startMs, endMs), getPrimaryProjectionKey('personal', activeAccounts, accounts));
 
     if (mode === 'household') return householdEvents;
     if (mode === 'personal') return personalEvents;
     if (mode === 'business') return [];
     return [...householdEvents, ...personalEvents];
-  }, [householdBills, personalBills, startMs, endMs, mode, activeAccounts]);
+  }, [householdBills, personalBills, startMs, endMs, mode, activeAccounts, accounts]);
   const incomeEvts = useMemo(() => {
     if (mode === 'business') return [];
     const events = getIncomeEventsBetween(incomeEvents, startMs, endMs, accountRegistry, userMode, novaConfig);
@@ -246,33 +342,58 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   }, [incomeEvents, startMs, endMs, accountRegistry, userMode, novaConfig, modeAccountKeys, mode]);
 
   const monthTx = useMemo(() => (transactions || [])
-    .filter(t => mode === 'dashboard' && !t.deleted && t.timestamp >= startMs && t.timestamp <= endMs), [transactions, startMs, endMs, mode]);
+    .filter(t => {
+      if (mode === 'business' || t.deleted || t.timestamp < startMs || t.timestamp > endMs) return false;
+      if (!modeAccountKeys) return true;
+      return t.accountKey && modeAccountKeys.has(t.accountKey);
+    }), [transactions, startMs, endMs, mode, modeAccountKeys]);
 
   const businessEvts = useMemo(() => {
     if (mode !== 'dashboard' && mode !== 'business') return [];
     return [
-      ...normalizeBusinessEvents(massageIncome, 'massage_income', 'Massage'),
-      ...normalizeBusinessEvents(massageExpenses, 'massage_expense', 'Massage'),
-      ...normalizeBusinessEvents(cleaningIncome, 'cleaning_income', 'Cleaning'),
-      ...normalizeBusinessEvents(cleaningExpenses, 'cleaning_expense', 'Cleaning'),
-      ...normalizeBusinessEvents(cleaningMileage, 'mileage', 'Cleaning'),
       ...normalizeBusinessEvents(genericBusinessIncome, 'business_income'),
       ...normalizeBusinessEvents(genericBusinessExpenses, 'business_expense'),
       ...normalizeBusinessEvents(genericBusinessMileage, 'business_mileage'),
     ].filter(evt => evt.dateMs >= startMs && evt.dateMs <= endMs);
   }, [
     mode,
-    massageIncome,
-    massageExpenses,
-    cleaningIncome,
-    cleaningExpenses,
-    cleaningMileage,
     genericBusinessIncome,
     genericBusinessExpenses,
     genericBusinessMileage,
     startMs,
     endMs,
   ]);
+  const recurringEvts = useMemo(() => {
+    const events = getRecurringTransactionEventsBetween(recurringTransactions || [], startMs, endMs);
+    return events.filter(evt => {
+      if (!recurringScopeMatches(evt, mode)) return false;
+      if (!modeAccountKeys) return true;
+      return evt.accountKey && modeAccountKeys.has(evt.accountKey);
+    });
+  }, [recurringTransactions, startMs, endMs, mode, modeAccountKeys]);
+  const businessTotalsByDate = useMemo(() => {
+    const totals = new Map();
+    (businessEvts || []).forEach(evt => {
+      const key = dateKeyFromMs(evt.dateMs);
+      const current = totals.get(key) || {
+        incomeCents: 0,
+        expenseCents: 0,
+        mileageDeductionCents: 0,
+        netCents: 0,
+      };
+      if (evt.type === 'business_income') {
+        current.incomeCents += evt.amountCents || 0;
+        current.netCents += evt.amountCents || 0;
+      } else if (evt.type === 'business_expense') {
+        current.expenseCents += evt.amountCents || 0;
+        current.netCents -= evt.amountCents || 0;
+      } else if (evt.type === 'business_mileage') {
+        current.mileageDeductionCents += evt.deductionCents || evt.amountCents || 0;
+      }
+      totals.set(key, current);
+    });
+    return totals;
+  }, [businessEvts]);
 
   const firstDow = monthStart.getDay();
   const daysInMonth = monthEnd.getDate();
@@ -288,12 +409,13 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
 
   const selectedMs = new Date(viewYear, viewMonth, selectedDay, 12, 0, 0, 0).getTime();
   const selectedKey = dateKeyFromMs(selectedMs);
-  const selectedProjection = projectedBalances.get(selectedKey) || getFallbackProjection(accounts || {});
+  const selectedProjection = isBusinessMode ? null : (projectedBalances.get(selectedKey) || getFallbackProjection(accounts || {}));
 
   const selectedBillEvts = billEvents.filter(e => isSameDayMs(e.dateMs, selectedMs));
   const selectedIncomeEvts = incomeEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
   const selectedTxEvts = monthTx.filter(t => isSameDayMs(t.timestamp, selectedMs));
   const selectedBusinessEvts = businessEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
+  const selectedRecurringEvts = recurringEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
 
   const headerLabel = monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const selectedLabel = new Date(viewYear, viewMonth, selectedDay).toLocaleDateString('en-US', {
@@ -324,6 +446,7 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const hasIncomeDot = (cellMs) => cellMs && incomeEvts.some(e => isSameDayMs(e.dateMs, cellMs));
   const hasTxDot = (cellMs) => cellMs && monthTx.some(t => isSameDayMs(t.timestamp, cellMs));
   const hasBusinessDot = (cellMs) => cellMs && businessEvts.some(e => isSameDayMs(e.dateMs, cellMs));
+  const hasRecurringDot = (cellMs) => cellMs && recurringEvts.some(e => isSameDayMs(e.dateMs, cellMs));
 
   const getProjectionForCell = (cellMs) => {
     if (!cellMs) return null;
@@ -331,33 +454,35 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   };
 
   const getCellRiskStyle = (projection, cellMs) => {
+    if (isBusinessMode) return null;
     if (!projection) return null;
-    const key = getPrimaryProjectionKey(mode, activeAccounts);
-    const floor = accountFloors?.[key] ?? FIXED_ACCOUNT_FLOORS[key] ?? 0;
+    const key = getPrimaryProjectionKey(mode, activeAccounts, accounts);
+    if (!key) return null;
+    const floor = accountFloors?.[key] ?? 0;
     const balance = projection[key] || 0;
     if (balance < 0) return styles.redProjectionCell;
     let checkBalance = balance;
-    if (groceryReserveOn && cellMs && key === groceryAccountKey && groceryBudget) {
-      checkBalance = balance - getGroceryReserveForDate({ targetDateMs: cellMs, groceryBudget });
+    if (showGroceryReserve && cellMs && key === groceryAccountKey && activeGroceryBudget) {
+      checkBalance = balance - getGroceryReserveForDate({ targetDateMs: cellMs, groceryBudget: activeGroceryBudget });
     }
     if (floor > 0 && checkBalance < floor) return styles.yellowProjectionCell;
     return null;
   };
 
   const getGroceryDotColor = (cellMs) => {
-    if (!groceryReserveOn || !cellMs || !groceryBudget) return null;
+    if (!showGroceryReserve || !cellMs || !activeGroceryBudget) return null;
     const d = new Date(cellMs);
     if (d.getDay() !== 0) return null;
-    const weeklyLimit = groceryBudget?.weeklyLimit || 0;
+    const weeklyLimit = activeGroceryBudget?.weeklyLimit || 0;
     if (weeklyLimit <= 0) return null;
     const nowMs = now.getTime();
     const currentWeekStart = getCurrentWeekStart(nowMs);
     const cellWeekStart = getCurrentWeekStart(cellMs);
     if (cellWeekStart < currentWeekStart) return null;
     if (cellWeekStart === currentWeekStart) {
-      return (groceryBudget?.currentWeekSpend || 0) > weeklyLimit ? 'danger' : 'accent';
+      return (activeGroceryBudget?.currentWeekSpend || 0) > weeklyLimit ? 'groceryDanger' : 'grocery';
     }
-    return 'accent';
+    return 'grocery';
   };
 
   const openDay = (dayNum) => {
@@ -369,7 +494,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const hasScheduledActivity = selectedBillEvts.length > 0 ||
     selectedIncomeEvts.length > 0 ||
     selectedTxEvts.length > 0 ||
-    selectedBusinessEvts.length > 0;
+    selectedBusinessEvts.length > 0 ||
+    selectedRecurringEvts.length > 0;
 
   const touchedAccounts = useMemo(() => {
     const keys = new Set();
@@ -380,10 +506,24 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     });
     selectedIncomeEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
     selectedTxEvts.forEach(tx => tx.accountKey && keys.add(tx.accountKey));
+    selectedBusinessEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
+    selectedRecurringEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
     return keys;
-  }, [selectedBillEvts, selectedIncomeEvts, selectedTxEvts, allBills]);
+  }, [selectedBillEvts, selectedIncomeEvts, selectedTxEvts, selectedBusinessEvts, selectedRecurringEvts, allBills]);
 
   const balanceRows = useMemo(() => {
+    if (isBusinessMode) {
+      const totals = businessTotalsByDate.get(selectedKey);
+      if (!totals) return [];
+      const rows = [];
+      if (totals.incomeCents > 0) rows.push({ key: 'business_income', label: 'Business income', balance: totals.incomeCents, state: 'green' });
+      if (totals.expenseCents > 0) rows.push({ key: 'business_expenses', label: 'Business expenses', balance: -totals.expenseCents, state: 'red' });
+      if (totals.mileageDeductionCents > 0) rows.push({ key: 'business_mileage', label: 'Mileage deduction', balance: totals.mileageDeductionCents, state: 'green' });
+      if (totals.incomeCents > 0 || totals.expenseCents > 0) {
+        rows.push({ key: 'business_net', label: 'Business net', balance: totals.netCents, state: totals.netCents < 0 ? 'red' : 'green' });
+      }
+      return rows;
+    }
     if (!selectedProjection) return [];
     let keys;
     if (mode === 'household') {
@@ -391,17 +531,19 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
         .filter(account => account.role === 'household')
         .map(getAccountKey)
         .filter(Boolean);
-      keys = new Set(householdKeys.length > 0 ? householdKeys.slice(0, 1) : ['jointChecking']);
+      keys = new Set(householdKeys.length > 0 ? householdKeys : [...touchedAccounts]);
     } else if (mode === 'personal') {
       const configuredPersonal = activeAccounts
         .filter(account => account.role === 'personal')
         .map(getAccountKey)
         .filter(Boolean);
-      const legacyPersonal = ['entChecking', 'entSavings', 'venmo', 'cash']
-        .filter(key => configuredPersonal.length === 0 && (Object.prototype.hasOwnProperty.call(selectedProjection, key) || touchedAccounts.has(key)));
-      keys = new Set(configuredPersonal.length > 0 ? configuredPersonal : legacyPersonal);
+      keys = new Set(configuredPersonal.length > 0 ? configuredPersonal : [...touchedAccounts]);
     } else if (mode === 'business') {
-      keys = new Set(['cleaningChecking']);
+      const businessKeys = activeAccounts
+        .filter(account => account.role === 'business')
+        .map(getAccountKey)
+        .filter(Boolean);
+      keys = new Set(businessKeys.length > 0 ? businessKeys : [...touchedAccounts]);
     } else {
       keys = new Set([
         ...activeAccounts.map(getAccountKey).filter(Boolean),
@@ -413,33 +555,32 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     return [...keys]
       .filter(key => {
         const balance = selectedProjection[key] || 0;
-        if (mode === 'business') return key === 'cleaningChecking';
+        if (mode === 'business') return true;
         if (mode === 'household' || mode === 'personal') return true;
-        if (key === 'cleaningChecking') return balance !== 0;
         return balance !== 0 || touchedAccounts.has(key);
       })
       .map(key => {
         const balance = selectedProjection[key] || 0;
-        const floor = accountFloors?.[key] ?? FIXED_ACCOUNT_FLOORS[key] ?? 0;
+        const floor = accountFloors?.[key] ?? 0;
         const state = balance < floor
           ? 'red'
           : floor > 0 && balance <= Math.ceil(floor * 1.2)
             ? 'yellow'
             : 'green';
-        const groceryReserve = groceryReserveOn && key === groceryAccountKey && groceryBudget
-          ? getGroceryReserveForDate({ targetDateMs: selectedMs, groceryBudget })
+        const groceryReserve = showGroceryReserve && key === groceryAccountKey && activeGroceryBudget
+          ? getGroceryReserveForDate({ targetDateMs: selectedMs, groceryBudget: activeGroceryBudget })
           : 0;
         return { key, label: accountLabel(key), balance, state, groceryReserve, availableAfterGrocery: balance - groceryReserve };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [selectedProjection, activeAccounts, touchedAccounts, accountByKey, accountFloors, mode, groceryReserveOn, groceryAccountKey, groceryBudget, selectedMs]);
+  }, [selectedProjection, activeAccounts, touchedAccounts, accountByKey, accountFloors, mode, isBusinessMode, businessTotalsByDate, selectedKey, showGroceryReserve, groceryAccountKey, activeGroceryBudget, selectedMs]);
 
   const businessLabel = (evt) => {
     const label = evt.businessLabel || businessById.get(evt.businessId) || 'Business';
-    if (evt.type === 'massage_income' || evt.type === 'cleaning_income' || evt.type === 'business_income') {
+    if (evt.type === 'business_income') {
       return `${label} income - ${formatCentsShort(evt.amountCents || 0)}`;
     }
-    if (evt.type === 'massage_expense' || evt.type === 'cleaning_expense' || evt.type === 'business_expense') {
+    if (evt.type === 'business_expense') {
       return `${label} expense - ${formatCentsShort(evt.amountCents || 0)}`;
     }
     return `${label} mileage - ${(evt.miles || 0).toFixed(1)} mi - ${formatCentsShort(evt.deductionCents || 0)}`;
@@ -464,17 +605,19 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.groceryToggleRow}>
-        <Text style={styles.groceryToggleLabel}>Grocery Reserve</Text>
-        <TouchableOpacity
-          style={[styles.toggleBtn, groceryReserveOn && styles.toggleBtnActive]}
-          onPress={() => setGroceryReserveOn(v => !v)}
-        >
-          <Text style={[styles.toggleBtnText, groceryReserveOn && styles.toggleBtnTextActive]}>
-            {groceryReserveOn ? 'ON' : 'OFF'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {!isBusinessMode && (
+        <View style={styles.groceryToggleRow}>
+          <Text style={styles.groceryToggleLabel}>Grocery Reserve</Text>
+          <TouchableOpacity
+            style={[styles.toggleBtn, groceryReserveOn && styles.toggleBtnActive]}
+            onPress={() => setGroceryReserveOn(!groceryReserveOn)}
+          >
+            <Text style={[styles.toggleBtnText, groceryReserveOn && styles.toggleBtnTextActive]}>
+              {groceryReserveOn ? 'ON' : 'OFF'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.dowRow}>
         {DAYS.map(d => (
@@ -485,59 +628,90 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
       </View>
 
       <View style={styles.grid}>
-        {cells.map((cell, idx) => {
-          const todayCell = cell.inMonth && isToday(cell.dayNum);
-          const selectedCell = cell.inMonth && cell.dayNum === selectedDay;
-          const projection = getProjectionForCell(cell.cellMs);
-          const projectionKey = getPrimaryProjectionKey(mode, activeAccounts);
-          return (
-            <TouchableOpacity
-              key={idx}
-              style={[
-                styles.cell,
-                cell.inMonth && getCellRiskStyle(projection, cell.cellMs),
-                todayCell && styles.todayCell,
-                selectedCell && styles.selectedCell,
-              ]}
-              onPress={() => cell.inMonth && openDay(cell.dayNum)}
-              activeOpacity={0.7}
-            >
-              <View>
-                <Text style={[styles.cellDay, !cell.inMonth && styles.cellDayDim]}>
-                  {cell.inMonth ? cell.dayNum : ''}
-                </Text>
-                {cell.inMonth && projection && (
+        {(() => {
+          const projectionKey = getPrimaryProjectionKey(mode, activeAccounts, accounts);
+          return cells.map((cell, idx) => {
+            const todayCell = cell.inMonth && isToday(cell.dayNum);
+            const selectedCell = cell.inMonth && cell.dayNum === selectedDay;
+            const projection = getProjectionForCell(cell.cellMs);
+
+            let displayAmt = null;
+            if (cell.inMonth && !isBusinessMode && projection) {
+              const cash = projectionKey ? (projection[projectionKey] || 0) : 0;
+              displayAmt = (showGroceryReserve && projectionKey === groceryAccountKey && activeGroceryBudget && cell.cellMs)
+                ? cash - getGroceryReserveForDate({ targetDateMs: cell.cellMs, groceryBudget: activeGroceryBudget })
+                : cash;
+            } else if (cell.inMonth && isBusinessMode && cell.cellMs) {
+              const totals = businessTotalsByDate.get(dateKeyFromMs(cell.cellMs));
+              if (totals) {
+                displayAmt = (totals.incomeCents > 0 || totals.expenseCents > 0)
+                  ? totals.netCents
+                  : totals.mileageDeductionCents || null;
+              }
+            }
+
+            return (
+              <TouchableOpacity
+                key={idx}
+                style={[
+                  styles.cell,
+                  cell.inMonth && getCellRiskStyle(projection, cell.cellMs),
+                  todayCell && styles.todayCell,
+                  selectedCell && styles.selectedCell,
+                ]}
+                onPress={() => cell.inMonth && openDay(cell.dayNum)}
+                activeOpacity={0.7}
+              >
+                {/* Top row: date number + dot grid */}
+                <View style={styles.cellTopRow}>
+                  <Text style={[styles.cellDay, !cell.inMonth && styles.cellDayDim]}>
+                    {cell.inMonth ? cell.dayNum : ''}
+                  </Text>
+                  {cell.inMonth && (
+                    <DotGrid
+                      bill={isDotVisible('bill') && hasBillDot(cell.cellMs)}
+                      income={isDotVisible('income') && hasIncomeDot(cell.cellMs)}
+                      tx={isDotVisible('tx') && hasTxDot(cell.cellMs)}
+                      business={isDotVisible('business') && hasBusinessDot(cell.cellMs)}
+                      grocery={isDotVisible('grocery') ? getGroceryDotColor(cell.cellMs) : null}
+                      recurring={isDotVisible('recurring') && hasRecurringDot(cell.cellMs)}
+                    />
+                  )}
+                </View>
+                {/* Bottom: projected / available amount */}
+                {displayAmt !== null && (
                   <Text style={styles.projectionText} numberOfLines={1}>
-                    {formatCentsShort(projection[projectionKey] || 0)}
+                    {formatCentsShort(displayAmt)}
                   </Text>
                 )}
-              </View>
-              <View style={styles.dotsRow}>
-                {cell.inMonth && hasBillDot(cell.cellMs) && <View style={[styles.dot, styles.dotRed]} />}
-                {cell.inMonth && hasIncomeDot(cell.cellMs) && <View style={[styles.dot, styles.dotGreen]} />}
-                {cell.inMonth && hasTxDot(cell.cellMs) && <View style={[styles.dot, styles.dotBlue]} />}
-                {cell.inMonth && hasBusinessDot(cell.cellMs) && <View style={[styles.dot, styles.dotBusiness]} />}
-                {cell.inMonth && (() => {
-                  const gc = getGroceryDotColor(cell.cellMs);
-                  return gc ? <View style={[styles.dot, gc === 'danger' ? styles.dotGroceryDanger : styles.dotGrocery]} /> : null;
-                })()}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+              </TouchableOpacity>
+            );
+          });
+        })()}
       </View>
 
       <View style={styles.legendRow}>
-        <View style={[styles.dot, styles.dotRed]} /><Text style={styles.legendText}>Bills</Text>
-        <View style={[styles.dot, styles.dotGreen]} /><Text style={styles.legendText}>Income</Text>
-        <View style={[styles.dot, styles.dotBlue]} /><Text style={styles.legendText}>Transactions</Text>
-        <View style={[styles.dot, styles.dotBusiness]} /><Text style={styles.legendText}>Business</Text>
-        {groceryReserveOn && (groceryBudget?.weeklyLimit || 0) > 0 && (
-          <>
-            <View style={[styles.dot, styles.dotGrocery]} />
-            <Text style={styles.legendText}>Grocery reserve</Text>
-          </>
-        )}
+        {CALENDAR_DOT_TYPES
+          .filter(type => type.key !== 'grocery' || showGroceryReserve)
+          .map(type => {
+            const active = isDotVisible(type.key);
+            return (
+              <TouchableOpacity
+                key={type.key}
+                accessibilityRole="button"
+                style={[styles.legendPill, !active && styles.legendPillOff]}
+                onPress={() => toggleDotType(type.key)}
+                activeOpacity={0.75}
+              >
+                <View style={[
+                  styles.dot,
+                  { backgroundColor: type.color },
+                  !active && styles.legendDotOff,
+                ]} />
+                <Text style={[styles.legendText, !active && styles.legendTextOff]}>{type.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
       </View>
 
       <Modal
@@ -574,15 +748,16 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                   const bill = allBills.find(b => b.id === evt.billId);
                   const paidThisMonth = bill?.lastPaidMonth === currentMonth;
                   const sourceAccountKey = evt.accountKey || bill?.accountKey || bill?.defaultAccountKey;
+                  const postingMode = billPostingModeLabel(bill || evt);
                   return (
                     <TouchableOpacity
                       key={`b${i}`}
                       style={styles.eventRow}
                       onPress={() => { setSheetVisible(false); if (bill) setEditingBill(bill); }}
                     >
-                      <Text style={styles.eventText}>{evt.billName} - {formatCentsShort(evt.amountCents)}</Text>
+                      <Text style={styles.eventText}>{scheduledItemLabel(evt)}: {evt.billName} - {formatCentsShort(evt.amountCents)}</Text>
                       <Text style={styles.eventMeta}>
-                        from: {accountLabel(sourceAccountKey)}{paidThisMonth ? ` - paid ${formatDate(bill?.lastPaidDate || Date.now())}` : ''}
+                        from: {accountLabel(sourceAccountKey)} - {postingMode}{paidThisMonth ? ` - paid ${formatDate(bill?.lastPaidDate || Date.now())}` : ''}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -601,9 +776,19 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                 {selectedBusinessEvts.map((evt, i) => (
                   <View key={`biz${i}`} style={styles.eventRow}>
                     <Text style={styles.eventText}>{businessLabel(evt)}</Text>
-                    <Text style={styles.eventMeta}>business activity</Text>
+                    <Text style={styles.eventMeta}>{evt.accountKey ? accountLabel(evt.accountKey) : 'business activity'}</Text>
                   </View>
                 ))}
+
+                {selectedRecurringEvts.map((evt, i) => {
+                  const sign = evt.direction === 'income' ? '+' : '-';
+                  return (
+                    <View key={`rec${i}`} style={styles.eventRow}>
+                      <Text style={styles.eventText}>{evt.title} - {sign}{formatCentsShort(evt.amountCents || 0)}</Text>
+                      <Text style={styles.eventMeta}>{evt.category || 'recurring'} - {accountLabel(evt.accountKey)}</Text>
+                    </View>
+                  );
+                })}
 
                 {selectedTxEvts.map((tx, i) => {
                   const desc = (tx.description || '').slice(0, 36) || tx.category || 'Transaction';
@@ -621,9 +806,11 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
               </View>
 
               <View style={styles.sheetCard}>
-                <Text style={styles.cardTitle}>Projected Balances - {selectedLabel}</Text>
+                <Text style={styles.cardTitle}>{isBusinessMode ? 'Business Totals' : 'Projected Balances'} - {selectedLabel}</Text>
                 {balanceRows.length === 0 && (
-                  <Text style={styles.emptyText}>No projected balances available</Text>
+                  <Text style={styles.emptyText}>
+                    {isBusinessMode ? 'No business income, expenses, or mileage on this day.' : 'No projected balances available'}
+                  </Text>
                 )}
                 {balanceRows.map(row => (
                   <View key={row.key} style={styles.balanceRow}>
@@ -640,8 +827,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                     </Text>
                   </View>
                 ))}
-                {mode === 'business' && (
-                  <Text style={styles.scheduleNote}>cleaningChecking uses current balance. No recurring business schedule configured.</Text>
+                {isBusinessMode && (
+                  <Text style={styles.scheduleNote}>Business calendar only shows recorded business activity.</Text>
                 )}
               </View>
             </ScrollView>
@@ -652,9 +839,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
       <EditBillModal
         visible={editingBill !== null}
         bill={editingBill}
-        accountOptions={activeAccounts
-          .map(a => ({ key: getAccountKey(a), label: (a.name || a.id).toUpperCase() }))
-          .filter(option => option.key)}
+        accountOptions={modeAccountOptions}
+        profile={editProfile}
         onSubmit={async (updates) => { await editBill(editingBill.id, updates); setEditingBill(null); }}
         onDelete={() => { deleteBill(editingBill.id); setEditingBill(null); }}
         onClose={() => setEditingBill(null)}
@@ -662,6 +848,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
       <EditTransactionModal
         visible={editingTx !== null}
         transaction={editingTx}
+        accountOptions={modeAccountOptions}
+        profile={editProfile}
         onSubmit={async (updates) => { await editTransaction(editingTx.id, updates); setEditingTx(null); }}
         onClose={() => setEditingTx(null)}
       />
@@ -746,6 +934,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.borderColorDim,
     padding: 2,
+    flexDirection: 'column',
     justifyContent: 'space-between',
   },
   todayCell: {
@@ -761,34 +950,50 @@ const styles = StyleSheet.create({
   redProjectionCell: {
     backgroundColor: withAlpha(theme.danger, 0.1),
   },
+  // Cell top row: date number left, dot grid right
+  cellTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
   cellDay: {
     color: theme.textPrimary,
     fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
+    lineHeight: 12,
   },
   cellDayDim: {
     color: theme.textDim,
   },
+  // 2×3 dot grid
+  dotGrid: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+  },
+  dotGridRow: {
+    flexDirection: 'row',
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    margin: 1,
+  },
+  dotEmpty: {
+    backgroundColor: 'transparent',
+  },
+  // Dollar amount pinned to bottom of cell
   projectionText: {
     color: theme.textDim,
     fontSize: 8,
     fontFamily: theme.fontPrimary,
-    marginTop: 1,
+    textAlign: 'right',
   },
-  dotsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    margin: 1,
-  },
-  dotRed: { backgroundColor: theme.statusDanger },
-  dotGreen: { backgroundColor: theme.statusPositive },
-  dotBlue: { backgroundColor: theme.calendarBillColor },
+  dotRed: { backgroundColor: theme.calendarBillColor },
+  dotGreen: { backgroundColor: theme.calendarIncomeColor },
+  dotBlue: { backgroundColor: theme.calendarTransactionColor },
   dotBusiness: { backgroundColor: theme.calendarBusinessColor },
+  dotRecurring: { backgroundColor: theme.calendarRecurringColor },
   legendRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -803,7 +1008,27 @@ const styles = StyleSheet.create({
     color: theme.textDim,
     fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
-    marginRight: theme.spacingSM,
+  },
+  legendPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacingXS,
+    paddingHorizontal: theme.spacingSM,
+    paddingVertical: theme.spacingXS,
+    borderWidth: 1,
+    borderColor: theme.borderColorDim,
+    borderRadius: theme.borderRadiusSM,
+    backgroundColor: theme.backgroundCard,
+  },
+  legendPillOff: {
+    opacity: 0.45,
+    backgroundColor: theme.backgroundSecondary,
+  },
+  legendDotOff: {
+    backgroundColor: theme.textDim,
+  },
+  legendTextOff: {
+    color: theme.textDim,
   },
   modalScrim: {
     flex: 1,
@@ -940,8 +1165,8 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
     marginTop: theme.spacingSM,
   },
-  dotGrocery: { backgroundColor: theme.accent },
-  dotGroceryDanger: { backgroundColor: theme.statusDanger },
+  dotGrocery: { backgroundColor: theme.calendarGroceryColor },
+  dotGroceryDanger: { backgroundColor: theme.calendarGroceryDangerColor },
   groceryToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',

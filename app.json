@@ -2,10 +2,10 @@
   "expo": {
     "name": "N.O.V.A.",
     "slug": "nova-v2",
+    "scheme": "nova",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -20,11 +20,40 @@
     },
     "android": {
       "package": "com.copperfelix.novav2",
+      "versionCode": 1,
+      "allowBackup": false,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#000000"
       }
     },
-    "plugins": []
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow N.O.V.A. to attach receipt photos to transactions.",
+          "cameraPermission": "Allow N.O.V.A. to take receipt photos for transactions.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow N.O.V.A. to unlock your budget with Face ID."
+        }
+      ],
+      "./plugins/nova-android-widgets"
+    ]
   }
 }

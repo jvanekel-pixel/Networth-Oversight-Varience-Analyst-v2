@@ -89,9 +89,12 @@ function SetLimitModal({ visible, currentLimit, onSubmit, onClose }) {
   );
 }
 
-export default function GroceryBudgetCard() {
-  const groceryBudget = useStore((s) => s.groceryBudget);
-  const groceryEntries = useStore((s) => s.groceryEntries);
+export default function GroceryBudgetCard({ profile = 'household' }) {
+  const scope = profile === 'personal' ? 'personal' : 'household';
+  const title = scope === 'personal' ? 'PERSONAL GROCERY BUDGET' : 'HOUSEHOLD GROCERY BUDGET';
+  const groceryBudget = useStore((s) => scope === 'personal' ? s.personalGroceryBudget : s.groceryBudget);
+  const groceryHistory = useStore((s) => scope === 'personal' ? s.personalGroceryHistory : s.groceryHistory);
+  const groceryEntries = useStore((s) => scope === 'personal' ? s.personalGroceryEntries : s.groceryEntries);
   const logGrocerySpend = useStore((s) => s.logGrocerySpend);
   const updateGroceryBudget = useStore((s) => s.updateGroceryBudget);
   const editGroceryEntry = useStore((s) => s.editGroceryEntry);
@@ -104,6 +107,7 @@ export default function GroceryBudgetCard() {
   const [editGroceryRaw, setEditGroceryRaw] = useState('');
 
   const { weeklyLimit = 0, currentWeekSpend = 0 } = groceryBudget || {};
+  const lastClosedWeek = groceryBudget?.lastClosedWeek || (groceryHistory || [])[0] || null;
   const thisWeekEntries = (() => {
     const ws = getCurrentWeekStart();
     return [...(groceryEntries || [])]
@@ -121,7 +125,7 @@ export default function GroceryBudgetCard() {
     <>
       <Card>
         <View style={styles.cardHeaderRow}>
-          <Text style={styles.cardLabel}>GROCERY BUDGET</Text>
+          <Text style={styles.cardLabel}>{title}</Text>
           <TouchableOpacity onPress={() => setLimitVisible(true)}>
             <Text style={styles.linkText}>SET LIMIT</Text>
           </TouchableOpacity>
@@ -133,6 +137,19 @@ export default function GroceryBudgetCard() {
           This week: {formatCents(currentWeekSpend)}
           {weeklyLimit > 0 ? `  (${Math.floor(groceryPct * 100)}%)` : ''}
         </Text>
+        {lastClosedWeek && (
+          <View style={[
+            styles.weekResult,
+            lastClosedWeek.varianceCents >= 0 ? styles.weekResultGood : styles.weekResultBad,
+          ]}>
+            <Text style={styles.weekResultLabel}>LAST WEEK</Text>
+            <Text style={styles.weekResultText}>
+              {formatCents(lastClosedWeek.spendCents)} of {formatCents(lastClosedWeek.limitCents)} - {Math.abs(lastClosedWeek.varianceCents) === 0
+                ? 'on target'
+                : `${formatCents(Math.abs(lastClosedWeek.varianceCents))} ${lastClosedWeek.varianceCents > 0 ? 'under' : 'over'}`}
+            </Text>
+          </View>
+        )}
         {weeklyLimit > 0 && (
           <View style={styles.barTrack}>
             <View style={[styles.barFill, { width: `${Math.min(Math.floor(groceryPct * 100), 100)}%`, backgroundColor: groceryBarColor }]} />
@@ -155,7 +172,7 @@ export default function GroceryBudgetCard() {
                   { text: 'Delete', style: 'destructive', onPress: () => {
                     Alert.alert('Delete entry?', 'Week spend will be recalculated.', [
                       { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteGroceryEntry(entry.id) },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteGroceryEntry(entry.id, scope) },
                     ]);
                   }},
                 ]
@@ -170,13 +187,13 @@ export default function GroceryBudgetCard() {
 
       <GrocerySpendModal
         visible={groceryVisible}
-        onSubmit={async (cents) => { await logGrocerySpend(cents); checkSpendingFloors(); }}
+        onSubmit={async (cents) => { await logGrocerySpend(cents, scope); checkSpendingFloors(); }}
         onClose={() => setGroceryVisible(false)}
       />
       <SetLimitModal
         visible={limitVisible}
         currentLimit={weeklyLimit}
-        onSubmit={async (cents) => { await updateGroceryBudget({ weeklyLimitCents: cents }); }}
+        onSubmit={async (cents) => { await updateGroceryBudget({ weeklyLimitCents: cents, scope }); }}
         onClose={() => setLimitVisible(false)}
       />
       <Modal visible={editingGrocery !== null} transparent animationType="fade" onRequestClose={() => setEditingGrocery(null)}>
@@ -199,7 +216,7 @@ export default function GroceryBudgetCard() {
               onPress={async () => {
                 const amt = parseBillInput(editGroceryRaw);
                 if (amt > 0 && editingGrocery) {
-                  await editGroceryEntry(editingGrocery.id, { amountCents: amt });
+                  await editGroceryEntry(editingGrocery.id, { amountCents: amt }, scope);
                   setEditingGrocery(null);
                   setEditGroceryRaw('');
                 }
@@ -225,6 +242,11 @@ const styles = StyleSheet.create({
   linkText: { color: theme.accent, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
   btnIncome: { backgroundColor: theme.accentGlow, borderWidth: 1, borderColor: theme.accent, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingMD, paddingVertical: theme.spacingSM, marginRight: theme.spacingXS, marginBottom: theme.spacingXS },
   btnText: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, fontWeight: 'bold' },
+  weekResult: { borderWidth: 1, borderRadius: theme.borderRadiusSM, padding: theme.spacingSM, marginTop: theme.spacingXS, marginBottom: theme.spacingSM },
+  weekResultGood: { borderColor: theme.statusPositive, backgroundColor: theme.statusPositiveBg },
+  weekResultBad: { borderColor: theme.statusDanger, backgroundColor: theme.statusDangerBg },
+  weekResultLabel: { color: theme.textDim, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeXS, marginBottom: 2 },
+  weekResultText: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM },
   barTrack: { height: 6, backgroundColor: theme.backgroundPanel, borderRadius: 3, marginTop: theme.spacingXS, marginBottom: theme.spacingSM, overflow: 'hidden' },
   barFill: { height: 6, borderRadius: 3 },
   groceryEntryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: theme.spacingXS, borderTopWidth: 1, borderTopColor: theme.borderColorDim, marginTop: theme.spacingXS },

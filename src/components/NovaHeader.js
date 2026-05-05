@@ -1,92 +1,68 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Animated } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-import Svg, { Ellipse, Circle, Path, Text as SvgText, Defs, RadialGradient, Stop } from 'react-native-svg';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
-import { timeAgo } from '../utils/dates';
-
-function NovaFace({ size = 80 }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
-      <Defs>
-        <RadialGradient id="faceGlow" cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor={theme.faceColor} stopOpacity="0.06" />
-          <Stop offset="100%" stopColor={theme.faceColor} stopOpacity="0" />
-        </RadialGradient>
-      </Defs>
-      <Ellipse cx="50" cy="52" rx="43" ry="45" fill={theme.faceColorDim} stroke={theme.faceColor} strokeWidth="1.5" />
-      <Ellipse cx="50" cy="52" rx="43" ry="45" fill="url(#faceGlow)" />
-      <Path d="M 28 34 Q 36 30 44 34" stroke={theme.faceColor} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M 56 34 Q 64 30 72 34" stroke={theme.faceColor} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Ellipse cx="36" cy="45" rx="7" ry="7" stroke={theme.faceColor} strokeWidth="1.5" fill="none" />
-      <Circle cx="36" cy="45" r="3.5" fill={theme.faceColor} fillOpacity="0.65" />
-      <Circle cx="37.5" cy="43.5" r="1.2" fill="white" fillOpacity="0.3" />
-      <Ellipse cx="64" cy="45" rx="7" ry="7" stroke={theme.faceColor} strokeWidth="1.5" fill="none" />
-      <Circle cx="64" cy="45" r="3.5" fill={theme.faceColor} fillOpacity="0.65" />
-      <Circle cx="65.5" cy="43.5" r="1.2" fill="white" fillOpacity="0.3" />
-      <Path d="M 37 64 Q 50 71 63 64" stroke={theme.faceColor} strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      <SvgText x="50" y="93" textAnchor="middle" fontFamily="monospace" fontSize="5" fill={theme.faceColor} fillOpacity="0.4">
-        CONTENT
-      </SvgText>
-    </Svg>
-  );
-}
+import { getNovaStateLabel, pickNovaResponse } from '../utils/novaStateEngine';
+import { NovaFace } from './NovaFace';
 
 export { NovaFace };
 
 export default function NovaHeader() {
+  const insets = useSafeAreaInsets();
   const [now, setNow] = useState(new Date());
-  const { xpTotal, badges, currentFlavorText, lastActivityAt, confirmBalance, rotateFlavorText, postPaydayActions } = useStore();
-  const badgeCount = Object.keys(badges).length;
+  const {
+    xpTotal,
+    badgeState,
+    streakData,
+    currentFlavorText,
+    currentNovaState,
+    currentNovaFace,
+    postPaydayActions,
+    setNovaState,
+  } = useStore();
+  const badgeCount = Object.values(badgeState || {}).filter(state => state?.tier).length;
+  const weeklyActive = streakData?.weeklyActive || {};
 
   const novaIsAntsy = (postPaydayActions || []).some(a => !a.completed && Date.now() < a.expiresAt);
+  const effectiveFace = novaIsAntsy ? 'post_payday_antsy' : currentNovaFace;
+  const stateLabel = novaIsAntsy ? getNovaStateLabel('post_payday_antsy') : getNovaStateLabel(currentNovaState);
   const personality = require('../config/personality.config').default;
   const antsynudge = novaIsAntsy
     ? personality.postPaydayNudges[Math.floor(Math.random() * personality.postPaydayNudges.length)]
     : null;
+  const hasFlavorText = String(currentFlavorText || '').trim().length > 0;
+  const fallbackResponse = useMemo(() => pickNovaResponse(currentNovaState || 'neutral', {
+    eventType: currentNovaState === 'neutral' ? 'onboarding_complete' : null,
+    snapshot: useStore.getState(),
+    avoidFaceKey: currentNovaFace,
+  }), [currentNovaFace, currentNovaState]);
+  const displayFlavorText = hasFlavorText
+    ? currentFlavorText
+    : fallbackResponse?.text || 'NOVA online. The ledger is open. The numbers are about to tell me who we are today.';
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (hasFlavorText || !fallbackResponse?.text || !setNovaState) return;
+    setNovaState({
+      stateKey: fallbackResponse.stateKey || currentNovaState || 'neutral',
+      faceKey: fallbackResponse.faceKey || currentNovaFace || 'neutral',
+      text: fallbackResponse.text,
+      timestamp: Date.now(),
+    });
+  }, [currentFlavorText, currentNovaFace, currentNovaState, fallbackResponse?.faceKey, fallbackResponse?.stateKey, fallbackResponse?.text, hasFlavorText, setNovaState]);
+
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-  const needsConfirm = !lastActivityAt || Date.now() - lastActivityAt > 48 * 60 * 60 * 1000;
-
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const pulseLoopRef = useRef(null);
-
-  useEffect(() => {
-    if (needsConfirm) {
-      pulseLoopRef.current = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 0.6, duration: 750, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1.0, duration: 750, useNativeDriver: true }),
-        ]),
-      );
-      pulseLoopRef.current.start();
-    } else {
-      if (pulseLoopRef.current) pulseLoopRef.current.stop();
-      pulseAnim.setValue(1);
-    }
-    return () => { if (pulseLoopRef.current) pulseLoopRef.current.stop(); };
-  }, [needsConfirm]);
-
-  const handleConfirm = () => {
-    if (pulseLoopRef.current) pulseLoopRef.current.stop();
-    pulseAnim.setValue(1);
-    confirmBalance();
-    const personality = require('../config/personality.config').default;
-    rotateFlavorText(personality.starterPool);
-  };
-
   return (
-    <View style={styles.container}>
-      <View style={styles.row}>
+    <View style={[styles.container, { paddingTop: Math.max(insets.top + 8, theme.spacingMD) }]}>
+      <View style={styles.topRow}>
         <Text style={styles.appName}>{theme.appName}</Text>
         <Text style={styles.datetime}>{timeStr}  {dateStr}</Text>
       </View>
@@ -96,36 +72,30 @@ export default function NovaHeader() {
       </View>
 
       <View style={styles.faceRow}>
-        <NovaFace size={80} />
-        <View style={{ flex: 1, marginLeft: theme.spacingMD }}>
-          <Text style={styles.flavorText}>{currentFlavorText || '...'}</Text>
+        <View style={styles.faceFrame}>
+          <NovaFace size={84} faceKey={effectiveFace} />
+        </View>
+        <View style={styles.faceCopy}>
+          <Text style={styles.flavorText}>{displayFlavorText}</Text>
           {antsynudge && (
             <Text style={styles.antsynudge}>{antsynudge}</Text>
           )}
         </View>
       </View>
 
-      <View style={styles.row}>
+      <View style={styles.statRow}>
         <View style={styles.pill}>
           <Text style={styles.pillText}>XP: {xpTotal}</Text>
         </View>
         <View style={styles.pill}>
-          <Text style={styles.pillText}>BADGES: {badgeCount}</Text>
+          <Text style={styles.pillText}>BADGES: {badgeCount}/10</Text>
         </View>
-      </View>
-
-      <View style={styles.row}>
-        <Text style={styles.lastLogged}>Last logged: {timeAgo(lastActivityAt)}</Text>
-        <Animated.View style={{ opacity: needsConfirm ? pulseAnim : 1 }}>
-          <TouchableOpacity
-            style={[styles.confirmBtn, needsConfirm && styles.confirmBtnGlow]}
-            onPress={handleConfirm}
-          >
-            <Text style={[styles.confirmText, needsConfirm && styles.confirmTextGlow]}>
-              CONFIRM BALANCE
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
+        <View style={styles.pill}>
+          <Text style={styles.pillText}>WEEK STREAK: {weeklyActive.current || 0}</Text>
+        </View>
+        <View style={styles.statePill}>
+          <Text style={styles.statePillText}>{stateLabel}</Text>
+        </View>
       </View>
     </View>
   );
@@ -134,11 +104,17 @@ export default function NovaHeader() {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: theme.backgroundSecondary,
-    paddingTop: theme.spacingMD,
-    paddingBottom: theme.spacingSM,
+    paddingHorizontal: theme.spacingMD,
+    paddingBottom: theme.spacingMD,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColorDim,
-    minHeight: SCREEN_HEIGHT * 0.30,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacingSM,
+    marginBottom: theme.spacingXS,
   },
   row: {
     flexDirection: 'row',
@@ -146,16 +122,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: theme.spacingXS,
   },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacingXS,
+    marginTop: theme.spacingXS,
+  },
   appName: {
     color: theme.accent,
-    fontSize: theme.fontSizeXXL,
+    fontSize: 26,
     fontFamily: theme.fontPrimary,
     fontWeight: 'bold',
+    flexShrink: 1,
   },
   datetime: {
     color: theme.textSecondary,
-    fontSize: theme.fontSizeSM,
+    fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
+    marginTop: 4,
   },
   subtitle: {
     color: theme.textDim,
@@ -165,16 +150,31 @@ const styles = StyleSheet.create({
   faceRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: theme.spacingXS,
-    minHeight: SCREEN_HEIGHT * 0.12,
+    marginTop: theme.spacingSM,
+    minHeight: 94,
+  },
+  faceFrame: {
+    width: 94,
+    height: 94,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+    borderRadius: theme.borderRadiusLG,
+    backgroundColor: 'rgba(0,255,209,0.04)',
+  },
+  faceCopy: {
+    flex: 1,
+    minHeight: 94,
+    marginLeft: theme.spacingMD,
+    justifyContent: 'center',
   },
   flavorText: {
-    flex: 1,
-    color: theme.textSecondary,
-    fontSize: theme.fontSizeSM,
+    color: theme.textPrimary,
+    fontSize: theme.fontSizeMD,
     fontFamily: theme.fontPrimary,
     fontStyle: 'italic',
-    marginLeft: theme.spacingMD,
+    lineHeight: 20,
   },
   pill: {
     backgroundColor: theme.backgroundPanel,
@@ -183,41 +183,27 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadiusMD,
     paddingHorizontal: theme.spacingSM,
     paddingVertical: theme.spacingXS,
-    marginRight: theme.spacingSM,
   },
   pillText: {
     color: theme.textSecondary,
     fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
   },
-  lastLogged: {
-    color: theme.textDim,
-    fontSize: theme.fontSizeXS,
-    fontFamily: theme.fontPrimary,
-  },
-  confirmBtn: {
+  statePill: {
+    backgroundColor: theme.accentGlow,
     borderWidth: 1,
     borderColor: theme.borderColor,
     borderRadius: theme.borderRadiusMD,
     paddingHorizontal: theme.spacingSM,
     paddingVertical: theme.spacingXS,
+    marginLeft: 'auto',
+    maxWidth: '52%',
   },
-  confirmBtnGlow: {
-    borderColor: theme.accent,
-    backgroundColor: theme.accentGlow,
-    shadowColor: theme.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  confirmText: {
-    color: theme.textSecondary,
+  statePillText: {
+    color: theme.accent,
     fontSize: theme.fontSizeXS,
     fontFamily: theme.fontPrimary,
-  },
-  confirmTextGlow: {
-    color: theme.accent,
+    textAlign: 'center',
   },
   antsynudge: {
     color: theme.statusWarning,

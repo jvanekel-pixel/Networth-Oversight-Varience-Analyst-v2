@@ -25,9 +25,9 @@ export default function OnboardingSavingsGoalScreen({ navigation }) {
     let goal = null;
     if (selectedKey && selectedKey !== 'custom') {
       const preset = PRESET_GOALS.find((g) => g.key === selectedKey);
-      goal = { key: selectedKey, targetCents: preset.amount, label: preset.label, accountId: null };
+      goal = { key: selectedKey, targetCents: preset.amount, label: preset.label, accountId: null, scope: 'personal', currentCents: 0, monthlyContributionCents: 0 };
     } else if (selectedKey === 'custom' && customAmount) {
-      goal = { key: 'custom', targetCents: parseBillInput(customAmount), label: 'Custom Goal', accountId: null };
+      goal = { key: 'custom', targetCents: parseBillInput(customAmount), label: 'Custom Goal', accountId: null, scope: 'personal', currentCents: 0, monthlyContributionCents: 0 };
     }
     updateWizard({ savingsGoal: goal });
     navigation.navigate('OnboardingEntrepreneur');

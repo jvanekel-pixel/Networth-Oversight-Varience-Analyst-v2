@@ -3,16 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert } from 'reac
 import theme from '../../config/theme.config';
 import useStore from '../../store/useStore';
 
-function bucketTypeFromName(name) {
-  const raw = String(name || '').trim().toLowerCase();
-  if (raw === 'grocery' || raw === 'groceries') return 'groceries';
-  if (raw === 'gas') return 'gas';
-  if (raw === 'phone') return 'phone';
-  if (raw === 'medication' || raw === 'medicine' || raw === 'meds') return 'medication';
-  if (raw === 'kids / pets' || raw === 'kids pets' || raw === 'kids_pets' || raw === 'pets') return 'kids_pets';
-  return 'custom';
-}
-
 export default function SpendingBucketsSection() {
   const spendingBuckets = useStore((s) => s.spendingBuckets);
   const addBucket = useStore((s) => s.addBucket);
@@ -24,8 +14,7 @@ export default function SpendingBucketsSection() {
   async function handleAdd() {
     const name = newName.trim();
     if (!name) return;
-    const type = bucketTypeFromName(name);
-    await addBucket({ name, type, canonicalLabel: type, isActive: true });
+    await addBucket({ name, label: name, isActive: true });
     setNewName('');
   }
 

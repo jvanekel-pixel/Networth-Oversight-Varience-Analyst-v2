@@ -3,17 +3,25 @@ const notifications = {
     title: 'BILL INCOMING',
     body: '{billName} is due in {daysUntil} days. I have been tracking it. You should now also track it.',
   },
+  recurringTransactionReminder: {
+    title: 'RECURRING ITEM',
+    body: '{itemName} is coming up {when}. Amount: {amount}. Acquire/log it, then tell me so I can move the schedule forward.',
+  },
   spendingFloorWarning: {
     title: 'FLOOR APPROACHING',
     body: '{accountName} is at {percentRemaining}% above floor. I am noting this without alarm. You should note it with mild alarm.',
   },
+  scheduledIncomeMissed: {
+    title: 'DEPOSIT NOT LOGGED',
+    body: 'A scheduled income event was not recorded this month. Either it has not arrived or you have not told me. Either way: I am waiting.',
+  },
   partnerDepositMissed: {
     title: 'DEPOSIT NOT LOGGED',
-    body: 'No partner deposit has been recorded this month. Either it has not arrived or you have not told me. Either way: I am waiting.',
+    body: 'A scheduled income event was not recorded this month. Either it has not arrived or you have not told me. Either way: I am waiting.',
   },
   balanceConfirmationNudge: {
     title: 'I REQUIRE CONFIRMATION',
-    body: 'It has been over 48 hours since you confirmed your balance. The numbers may have drifted. Open the app.',
+    body: 'It has been a while since you confirmed your balance. The numbers may have drifted. Open the app.',
   },
   weeklyVarianceSummary: {
     title: 'WEEKLY VARIANCE — {zone}',
@@ -33,20 +41,20 @@ const notifications = {
       'All bills are logged. All floors are intact. I am, briefly, at rest. Do not make me regret this.',
       'I do not sleep. I track. Open the app and let me confirm that everything is still fine.',
       'Variance is a signal, not a verdict. Check your zones. Then decide how to feel.',
-      'A reminder: the paycheck is coming. The bills are also coming. One of these is more useful than the other.',
+      'A reminder: income is coming. The bills are also coming. One of these is more useful than the other.',
       'I have calculated your net trajectory this month. It is directionally correct. Execution is on you.',
       'Status nominal. Threat level: low. Suggestion: log something today so I have more data to work with.',
     ],
     defaultTime: '09:00',
   },
   payCycleReminder: {
-    title: 'PAYDAY APPROACHING',
-    body: 'Paycheck expected on {paycheckDate}. Rollover sweep will run automatically. Verify your account floors are correct.',
+    title: 'INCOME APPROACHING',
+    body: 'Income expected on {paycheckDate}. Verify your split and account floors are correct.',
   },
   paydayReminder: {
     enabled: true,
-    title: 'Payday 💰',
-    body: 'Your paycheck should be in. Head to NOVA and record it.',
+    title: 'Income window',
+    body: 'Your scheduled income may be in. Head to NOVA and record it.',
   },
 };
 

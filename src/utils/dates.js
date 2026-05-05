@@ -18,6 +18,21 @@ export function getLastFridayOfMonth(year, month) {
   return lastDay;
 }
 
+export function addMonthsClamped(timestamp, deltaMonths = 1) {
+  const source = new Date(timestamp);
+  const targetMonth = source.getMonth() + deltaMonths;
+  const lastDay = new Date(source.getFullYear(), targetMonth + 1, 0).getDate();
+  return new Date(
+    source.getFullYear(),
+    targetMonth,
+    Math.min(source.getDate(), lastDay),
+    source.getHours(),
+    source.getMinutes(),
+    source.getSeconds(),
+    source.getMilliseconds(),
+  ).getTime();
+}
+
 export function getPartnerDepositDate(year, month) {
   const lastDay = new Date(year, month + 1, 0);
   const dow = lastDay.getDay();
@@ -26,8 +41,8 @@ export function getPartnerDepositDate(year, month) {
   return lastDay;
 }
 
-export function getCurrentWeekStart() {
-  const now = new Date();
+export function getCurrentWeekStart(timestamp = Date.now()) {
+  const now = new Date(timestamp);
   const day = now.getDay();
   const sunday = new Date(now);
   sunday.setDate(now.getDate() - day);

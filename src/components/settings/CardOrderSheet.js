@@ -50,10 +50,9 @@ export default function CardOrderSheet({ visible, title, cards, currentOrder, cu
           <Text style={styles.title}>{title || 'CUSTOMIZE CARD ORDER'}</Text>
           {draft.length === 0 && <Text style={styles.empty}>No reorderable cards are currently visible.</Text>}
           {draft.map((id, idx) => {
-            const isVariance = id === 'variance';
             const isHidden = draftHidden.includes(id);
-            const upDisabled = idx === 0 || isVariance;
-            const downDisabled = idx === draft.length - 1 || isVariance;
+            const upDisabled = idx === 0;
+            const downDisabled = idx === draft.length - 1;
             return (
               <View key={id} style={[styles.row, isHidden && styles.rowHidden]}>
                 <Text style={[styles.label, isHidden && styles.labelHidden]}>{labels[id] || id}</Text>

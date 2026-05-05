@@ -61,7 +61,7 @@ export default function PaycheckSplitSheet() {
       <View>
         {storedSplits.length === 0 ? (
           <View style={styles.emptyRow}>
-            <Text style={styles.emptyText}>Paycheck split not configured.</Text>
+            <Text style={styles.emptyText}>Income split not configured.</Text>
             <TouchableOpacity style={styles.setupBtn} onPress={() => setEditing(true)}>
               <Text style={styles.setupBtnText}>TAP TO SET UP</Text>
             </TouchableOpacity>

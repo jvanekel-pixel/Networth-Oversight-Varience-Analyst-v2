@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import theme from '../../config/theme.config';
 import useStore from '../../store/useStore';
-import { parseBillInput, formatCentsShort } from '../../utils/currency';
+import { parseBillInput, formatCentsWholeFloor } from '../../utils/currency';
 
 const ACCOUNT_TYPES = ['checking', 'savings', 'digital', 'cash'];
 const ACCOUNT_ROLES = ['household', 'personal', 'business'];
@@ -52,7 +52,7 @@ export default function AccountsSection() {
           <View style={styles.rowInfo}>
             <Text style={styles.rowName}>{a.name}</Text>
             <Text style={styles.rowMeta}>
-              {a.type.toUpperCase()} · {a.role.toUpperCase()} · {formatCentsShort(accounts[a.legacyKey || a.id] || 0)}
+              {a.type.toUpperCase()} · {a.role.toUpperCase()} · {formatCentsWholeFloor(accounts[a.legacyKey || a.id] || 0)}
             </Text>
           </View>
           <TouchableOpacity onPress={() => handleArchive(a.id)}>

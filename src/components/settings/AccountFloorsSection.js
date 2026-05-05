@@ -1,24 +1,42 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import theme from '../../config/theme.config';
 import useStore from '../../store/useStore';
 import { parseBillInput } from '../../utils/currency';
 
-const ACCOUNTS = [
-  { key: 'jointChecking', label: 'Joint Checking' },
-  { key: 'entChecking',   label: 'ENT Checking' },
-  { key: 'entSavings',   label: 'ENT Savings' },
-  { key: 'venmo',        label: 'Venmo' },
-  { key: 'cash',         label: 'Cash' },
-];
-
 export default function AccountFloorsSection() {
   const accountFloors = useStore(s => s.accountFloors);
+  const accountRegistry = useStore(s => s.accountRegistry);
   const updateConfig = useStore(s => s.updateConfig);
 
+  const floorAccounts = useMemo(() => {
+    const active = (accountRegistry || [])
+      .filter(a => a.isActive !== false)
+      .map(a => ({ key: a.legacyKey || a.id, label: a.name || a.id }));
+    if (active.length > 0) return [...active, { key: 'others', label: 'Other Accounts' }];
+    return [
+      { key: 'jointChecking', label: 'Joint Checking' },
+      { key: 'entChecking', label: 'ENT Checking' },
+      { key: 'entSavings', label: 'ENT Savings' },
+      { key: 'venmo', label: 'Venmo' },
+      { key: 'cash', label: 'Cash' },
+      { key: 'others', label: 'Other Accounts' },
+    ];
+  }, [accountRegistry]);
+
   const [values, setValues] = useState(() =>
-    Object.fromEntries(ACCOUNTS.map(({ key }) => [key, ((accountFloors[key] || 0) / 100).toFixed(2)]))
+    Object.fromEntries(floorAccounts.map(({ key }) => [key, ((accountFloors[key] || 0) / 100).toFixed(2)]))
   );
+
+  useEffect(() => {
+    setValues(current => {
+      const next = { ...current };
+      for (const { key } of floorAccounts) {
+        if (next[key] === undefined) next[key] = ((accountFloors[key] || 0) / 100).toFixed(2);
+      }
+      return next;
+    });
+  }, [floorAccounts, accountFloors]);
 
   const handleBlur = (key) => {
     updateConfig({ accountFloors: { ...accountFloors, [key]: parseBillInput(values[key]) } });
@@ -28,7 +46,7 @@ export default function AccountFloorsSection() {
     <View>
       <Text style={styles.header}>ACCOUNT FLOORS</Text>
       <Text style={styles.subtitle}>Minimum safe balance per account.</Text>
-      {ACCOUNTS.map(({ key, label }) => (
+      {floorAccounts.map(({ key, label }) => (
         <View key={key}>
           <Text style={styles.label}>{label}</Text>
           <TextInput

@@ -1,8 +1,8 @@
 export const PAYDAY_AMOUNTS = {
-  jointDeposit: 990,
-  savingsDeposit: 50,
-  entDeposit: 313,
-  venmoMove: 150,
+  sharedDeposit: 0,
+  savingsDeposit: 0,
+  primaryDeposit: 0,
+  walletMove: 0,
 };
 
 const personality = {
@@ -29,15 +29,15 @@ const personality = {
     rollover: 'Rollover Achieved',
     savingsMilestone: 'Savings Milestone',
     groceryBudgetMet: 'Grocery Discipline',
-    partnerDepositArrived: 'Deposit Received',
+    scheduledIncomeArrived: 'Deposit Received',
     billPaidOnTime: 'Bill Paid On Time',
     floorNotBreached: 'Floor Maintained',
   },
 
   postPaydayNudges: [
-    "Your Venmo is looking lonely.",
-    "Savings doesn't move itself.",
-    "Post-payday. You know what to do.",
+    "Your split accounts are waiting for confirmation.",
+    "Savings does not move itself.",
+    "Post-income. You know what to do.",
     "The accounts await your attention.",
   ],
 
@@ -58,6 +58,75 @@ const personality = {
     linkPrompt: 'Link an account in Settings to track progress',
     reachedCopy: 'Buffer reached.',
     settingsNotLinked: 'Not linked',
+  },
+
+  transactionSearch: {
+    title: 'TRANSACTION SEARCH',
+    back: 'BACK',
+    searchPlaceholder: 'Search description, category, or account',
+    clear: 'CLEAR',
+    resultCount: 'Showing {shown} of {total} transactions',
+    searchEmpty: "No transactions match. Either your filters are aggressive or you've achieved financial enlightenment.",
+    allAccounts: 'All Accounts',
+    joint: 'Joint',
+    ent: 'ENT',
+    savings: 'Savings',
+    venmo: 'Venmo',
+    cash: 'Cash',
+    allCategories: 'All Categories',
+    thisCycle: 'This Cycle',
+    last30Days: 'Last 30 Days',
+    last90Days: 'Last 90 Days',
+    allTime: 'All Time',
+    unknownAccount: 'Unknown',
+    uncategorized: 'Uncategorized',
+    transaction: 'Transaction',
+    noResults: 'No results',
+    searchIcon: '⌕',
+  },
+  chartLabels: {
+    cycleSpend: 'CYCLE SPEND',
+    sixMonthTrend: '6-MONTH TREND',
+    household: 'Household',
+    personal: 'Personal',
+    business: 'Business',
+    other: 'Other',
+    categories: 'categories',
+    uncategorized: 'Uncategorized',
+    noSpend: 'No spend',
+  },
+
+  chartReactions: {
+    topCategory: [
+      "{category}: {pct}% of cycle spend. Dominant. Intentional. Probably.",
+      "{category} is eating {pct}% of the cycle. I have noted this without judgment.",
+      "{category} at {pct}%. Leading the field. Unchallenged.",
+    ],
+    categorySpike: [
+      "Variance flag: '{category}' up {pct}% this cycle. I am asking the polite version of what.",
+      "'{category}' grew {pct}%. This is either a crisis or a celebration. The data doesn't say.",
+      "{category} spiked {pct}%. Flagged. Filed. Mildly concerned.",
+    ],
+    allGreen: [
+      "Cycle spend is tracking lean. Either discipline or avoidance. Either works.",
+      "Nothing is spiking. This is either good management or a very boring month.",
+      "Controlled spend across all categories. NOVA approves, reluctantly.",
+    ],
+    noTransactions: [
+      "No transactions this cycle. Impressive restraint or suspicious silence.",
+    ],
+  },
+
+  reports: {
+    title: 'REPORTS',
+    subtitle: 'Cycle intelligence and export bay',
+    back: 'BACK',
+    dashboardLink: 'REPORTS',
+    exportData: 'EXPORT DATA',
+    jsonBackup: 'ALL JSON BACKUP',
+    accountCsv: 'CSV',
+    businessCsvs: 'BUSINESS CSVs',
+    noAccounts: 'No active accounts available for CSV export.',
   },
 };
 

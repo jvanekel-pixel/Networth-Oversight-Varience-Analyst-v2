@@ -7,9 +7,9 @@ import theme from '../../config/theme.config';
 import ProgressBar from './ProgressBar';
 import { useWizard } from './WizardContext';
 
-const BLANK_BIZ = { name: '', trackIncome: true, trackExpenses: true, trackMileage: false };
+const BLANK_BIZ = { name: '', trackIncome: true, trackExpenses: true, trackMileage: false, defaultAccountKey: '' };
 
-function BizCard({ biz, onUpdate, onRemove }) {
+function BizCard({ biz, accountOptions = [], onUpdate, onRemove }) {
   return (
     <View style={styles.bizCard}>
       <View style={styles.bizHeader}>
@@ -45,6 +45,22 @@ function BizCard({ biz, onUpdate, onRemove }) {
           thumbColor={biz.trackMileage ? theme.accent : theme.textDim}
         />
       </View>
+      {accountOptions.length > 0 && (
+        <>
+          <Text style={styles.trackLabel}>Money account</Text>
+          <View style={styles.chipRow}>
+            {accountOptions.map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.chip, biz.defaultAccountKey === opt.key && styles.chipOn]}
+                onPress={() => onUpdate({ ...biz, defaultAccountKey: opt.key })}
+              >
+                <Text style={[styles.chipText, biz.defaultAccountKey === opt.key && styles.chipTextOn]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -56,11 +72,20 @@ export default function OnboardingEntrepreneurScreen({ navigation }) {
     wizardState.wizardBusinesses.length > 0 ? wizardState.wizardBusinesses : []
   );
   const [newBizName, setNewBizName] = useState('');
+  const accountOptions = (() => {
+    const active = wizardState.wizardAccounts || [];
+    const businessAccounts = active.filter(account => account.role === 'business');
+    const source = businessAccounts.length > 0 ? businessAccounts : active;
+    return source
+      .map(account => ({ key: account.legacyKey || account.id, label: (account.name || account.id).toUpperCase() }))
+      .filter(option => option.key);
+  })();
+  const fallbackAccountKey = accountOptions[0]?.key || '';
 
   function handleAddBusiness() {
     const name = newBizName.trim();
     if (!name) return;
-    const biz = { ...BLANK_BIZ, id: `biz_${Date.now()}`, name };
+    const biz = { ...BLANK_BIZ, id: `biz_${Date.now()}`, name, defaultAccountKey: fallbackAccountKey };
     const updated = [...businesses, biz];
     setBusinesses(updated);
     setNewBizName('');
@@ -111,7 +136,8 @@ export default function OnboardingEntrepreneurScreen({ navigation }) {
           {businesses.map((b, i) => (
             <BizCard
               key={b.id || i}
-              biz={b}
+              biz={{ ...b, defaultAccountKey: b.defaultAccountKey || fallbackAccountKey }}
+              accountOptions={accountOptions}
               onUpdate={(u) => handleUpdate(i, u)}
               onRemove={() => handleRemove(i)}
             />
@@ -164,6 +190,11 @@ const styles = StyleSheet.create({
   removeBtn: { color: theme.statusDanger, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
   trackRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   trackLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacingXS, marginTop: 2 },
+  chip: { borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingSM, paddingVertical: 4 },
+  chipOn: { borderColor: theme.accent, backgroundColor: theme.accentGlow },
+  chipText: { color: theme.textDim, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
+  chipTextOn: { color: theme.accent },
   addRow: { flexDirection: 'row', gap: theme.spacingSM },
   nameInput: { flex: 1, borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusSM, padding: theme.spacingSM, color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeSM, backgroundColor: theme.backgroundPanel },
   addBtn: { borderWidth: 1, borderColor: theme.accent, borderRadius: theme.borderRadiusSM, paddingHorizontal: theme.spacingMD, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.accentGlow },

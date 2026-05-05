@@ -1,5 +1,17 @@
 ﻿import { addMonthsClamped, getCurrentWeekStart } from './dates';
 import { formatCentsShort } from './currency';
+import { getRecurringTransactionEventsBetween } from './recurringTransactions';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const CASH_FLOW_FORECAST_CARD_ID = 'cash_flow_forecast';
+export const FORECAST_HORIZON_OPTIONS = [30, 60, 90];
+
+export function normalizeForecastHorizon(value, fallback = 30) {
+  const safeFallback = FORECAST_HORIZON_OPTIONS.includes(fallback) ? fallback : 30;
+  const parsed = parseInt(value, 10);
+  return FORECAST_HORIZON_OPTIONS.includes(parsed) ? parsed : safeFallback;
+}
 
 export const getLastDayOfMonth = (year, monthZeroIndexed) => {
   return new Date(year, monthZeroIndexed + 1, 0).getDate();
@@ -55,9 +67,17 @@ export const getBillEventsBetween = (bills, startMs, endMs) => {
         const cycleId = `${y}-${String(m + 1).padStart(2, '0')}`;
         const skipPaid = billPaidInCycle(bill, cycleId);
         if (!skipPaid) {
-          const amountCents = bill.lastPaidAmountCents != null ? bill.lastPaidAmountCents : (bill.amountCents ?? bill.amount ?? 0);
+          const amountCents = getBillExpectedAmountCents(bill);
           if (amountCents > 0) {
-            events.push({ dateMs, billId: bill.id, billName: bill.name, amountCents, accountKey });
+            events.push({
+              dateMs,
+              billId: bill.id,
+              billName: bill.name,
+              amountCents,
+              accountKey,
+              billType: bill.billType || bill.kind || 'bill',
+              category: bill.category || null,
+            });
           }
         }
       }
@@ -70,14 +90,7 @@ export const getBillEventsBetween = (bills, startMs, endMs) => {
   return events;
 };
 
-export const PROJECTION_ACCOUNT_KEYS = [
-  'jointChecking',
-  'entChecking',
-  'entSavings',
-  'venmo',
-  'cash',
-  'cleaningChecking',
-];
+export const PROJECTION_ACCOUNT_KEYS = [];
 
 function asDate(value) {
   if (value instanceof Date) return value;
@@ -130,6 +143,10 @@ function isBillActiveForProjection(bill) {
   return bill && bill.active !== false && bill.isActive !== false && bill.deleted !== true;
 }
 
+function getBillExpectedAmountCents(bill) {
+  return Math.floor(bill?.amountCents ?? bill?.amount ?? 0);
+}
+
 function billPaidInCycle(bill, cycleId) {
   if (!bill) return false;
   if (bill.lastPaidMonth === cycleId || bill.paidMonth === cycleId) return true;
@@ -150,7 +167,7 @@ function getProjectionBillEvents(bills, startMs, endMs, fallbackAccountKey) {
 
   for (const bill of bills) {
     if (!isBillActiveForProjection(bill)) continue;
-    const amountCents = bill.amountCents ?? bill.amount ?? 0;
+    const amountCents = getBillExpectedAmountCents(bill);
     if (amountCents <= 0) continue;
 
     const scheduledDay = Math.max(1, Math.min(31, parseInt(bill.expectedDay || bill.dueDay || 1, 10) || 1));
@@ -187,7 +204,7 @@ function getProjectionIncomeAccountKey(event) {
     || event?.accountId
     || event?.destinationAccountKey
     || event?.destinationAccountId
-    || 'entChecking';
+    || null;
 }
 
 function resolveRegistryAccountKey(accountRef, accountRegistry = [], fallback = null) {
@@ -218,8 +235,6 @@ export function projectAccountBalances(
   householdBills = [],
   personalBills = [],
   incomeEvents = {},
-  massageIncome = [],
-  cleaningIncome = [],
   accountRegistry = [],
   novaConfig = {},
   userMode = null,
@@ -243,12 +258,12 @@ export function projectAccountBalances(
     addEventByDate(incomeByDay, {
       ...event,
       amountCents,
-      accountKey: resolveRegistryAccountKey(getProjectionIncomeAccountKey(event), accountRegistry, 'entChecking'),
+      accountKey: resolveRegistryAccountKey(getProjectionIncomeAccountKey(event), accountRegistry, null),
     });
   });
 
-  const householdFallback = getAccountKeyByRole('household', accountRegistry, 'jointChecking');
-  const personalFallback = getAccountKeyByRole('personal', accountRegistry, 'entChecking');
+  const householdFallback = getAccountKeyByRole('household', accountRegistry, null);
+  const personalFallback = getAccountKeyByRole('personal', accountRegistry, null);
 
   [
     ...getProjectionBillEvents(householdBills, startMs, endMs, householdFallback),
@@ -261,12 +276,14 @@ export function projectAccountBalances(
     const dateKey = toDateKey(dayMs);
 
     for (const event of incomeByDay.get(dateKey) || []) {
-      const accountKey = event.accountKey || 'entChecking';
+      const accountKey = event.accountKey;
+      if (!accountKey) continue;
       balances[accountKey] = (balances[accountKey] || 0) + event.amountCents;
     }
 
     for (const event of billByDay.get(dateKey) || []) {
-      const accountKey = event.accountKey || 'jointChecking';
+      const accountKey = event.accountKey;
+      if (!accountKey) continue;
       balances[accountKey] = (balances[accountKey] || 0) - event.amountCents;
     }
 
@@ -485,16 +502,18 @@ export const projectBalance = ({
   targetDateMs,
   bills,
   incomeEvents,
+  recurringTransactions = [],
   groceryWeeklyLimit = 0,
   groceryAccountKey = null,
   groceryBudget = null,
   accountRegistry = [],
   userMode = null,
   novaConfig = {},
+  now = Date.now(),
 }) => {
-  const now = Date.now();
   const billEvents = getBillEventsBetween(bills, now, targetDateMs);
   const incomeEvts = getIncomeEventsBetween(incomeEvents, now, targetDateMs, accountRegistry, userMode, novaConfig);
+  const recurringEvts = getRecurringTransactionEventsBetween(recurringTransactions, now, targetDateMs);
   const eventLog = [];
 
   let balance = currentBalance;
@@ -515,6 +534,16 @@ export const projectBalance = ({
     }
   }
 
+  for (const evt of recurringEvts) {
+    if (evt.accountKey === accountKey) {
+      const signedAmount = evt.direction === 'income'
+        ? Math.abs(evt.amountCents || 0)
+        : -Math.abs(evt.amountCents || 0);
+      balance += signedAmount;
+      eventLog.push({ type: 'recurring', ...evt, amountCents: signedAmount });
+    }
+  }
+
   for (const evt of billEvents) {
     if (evt.accountKey === accountKey) {
       balance -= evt.amountCents;
@@ -530,6 +559,7 @@ export const findMinimumProjectedBalance = ({
   accountKey,
   bills,
   incomeEvents,
+  recurringTransactions = [],
   daysAhead = 14,
   floorCents = 0,
   groceryBudget = null,
@@ -537,8 +567,8 @@ export const findMinimumProjectedBalance = ({
   accountRegistry = [],
   userMode = null,
   novaConfig = {},
+  now = Date.now(),
 }) => {
-  const now = Date.now();
   const currentCycleId = getCurrentCycleId(now);
   const billsForScan = (bills || []).filter(b => !billPaidInCycle(b, currentCycleId));
   let minimumBalance = currentBalance;
@@ -547,20 +577,22 @@ export const findMinimumProjectedBalance = ({
   let triggerBillName = null;
 
   for (let d = 1; d <= daysAhead; d++) {
-    const prevDayMs = now + (d - 1) * 24 * 60 * 60 * 1000;
-    const targetDateMs = now + d * 24 * 60 * 60 * 1000;
+    const prevDayMs = now + (d - 1) * DAY_MS;
+    const targetDateMs = now + d * DAY_MS;
     const { projectedBalance } = projectBalance({
       currentBalance,
       accountKey,
       targetDateMs,
       bills: billsForScan,
       incomeEvents,
-      groceryWeeklyLimit: 0,
-      groceryAccountKey: null,
-      groceryBudget: null,
+      recurringTransactions,
+      groceryWeeklyLimit: groceryBudget?.weeklyLimit || 0,
+      groceryAccountKey,
+      groceryBudget,
       accountRegistry,
       userMode,
       novaConfig,
+      now,
     });
     if (projectedBalance < minimumBalance) {
       minimumBalance = projectedBalance;
@@ -573,11 +605,172 @@ export const findMinimumProjectedBalance = ({
       if (dayBills.length > 0) {
         dayBills.sort((a, b) => b.amountCents - a.amountCents);
         triggerBillName = dayBills[0].billName;
+      } else {
+        const dayRecurringExpenses = getRecurringTransactionEventsBetween(recurringTransactions, prevDayMs, targetDateMs)
+          .filter(e => e.accountKey === accountKey && e.direction !== 'income');
+        if (dayRecurringExpenses.length > 0) {
+          dayRecurringExpenses.sort((a, b) => (b.amountCents || 0) - (a.amountCents || 0));
+          triggerBillName = dayRecurringExpenses[0].title || 'Recurring expense';
+        }
       }
     }
   }
 
   return { minimumBalance, minimumDate, dipsBelowFloor, triggerBillName };
+};
+
+function buildForecastCheckpointDays(daysAhead) {
+  const horizon = normalizeForecastHorizon(daysAhead);
+  const checkpoints = new Set([0, horizon]);
+  for (let i = 1; i < 5; i++) {
+    checkpoints.add(Math.max(1, Math.round((horizon * i) / 5)));
+  }
+  return Array.from(checkpoints).sort((a, b) => a - b);
+}
+
+function forecastPointLabel(day) {
+  return day === 0 ? 'TODAY' : `${day}D`;
+}
+
+export const buildCashFlowForecast = ({
+  profile,
+  accounts = {},
+  accountFloors = {},
+  bills = [],
+  incomeEvents = {},
+  recurringTransactions = [],
+  groceryBudget = null,
+  accountRegistry = [],
+  userMode = null,
+  novaConfig = {},
+  daysAhead = 30,
+  now = Date.now(),
+  includeGroceryReserve = true,
+}) => {
+  const horizonDays = normalizeForecastHorizon(daysAhead);
+  const profileAccounts = getProfileAccounts(profile, accountRegistry);
+  const groceryWeeklyLimit = includeGroceryReserve ? (groceryBudget?.weeklyLimit || 0) : 0;
+  const groceryAccountKey = groceryWeeklyLimit > 0
+    ? getAccountKeyByRole(profile, accountRegistry, null)
+    : null;
+  const floorByAccount = {};
+  let floorCents = 0;
+
+  for (const accountKey of profileAccounts) {
+    const floor = accountFloors[accountKey] ?? (accountFloors.others ?? 0);
+    floorByAccount[accountKey] = floor;
+    floorCents += floor;
+  }
+
+  const points = buildForecastCheckpointDays(horizonDays).map(day => {
+    const targetDateMs = now + day * DAY_MS;
+    let balanceCents = 0;
+    let incomeCents = 0;
+    let outflowCents = 0;
+    let billOutflowCents = 0;
+    let recurringNetCents = 0;
+    let groceryOutflowCents = 0;
+    let state = 'green';
+    const riskAccounts = [];
+
+    for (const accountKey of profileAccounts) {
+      const currentBalance = accounts[accountKey] || 0;
+      let projectedBalance = currentBalance;
+      let eventLog = [];
+
+      if (day > 0) {
+        const projection = projectBalance({
+          currentBalance,
+          accountKey,
+          targetDateMs,
+          bills,
+          incomeEvents,
+          recurringTransactions,
+          groceryWeeklyLimit,
+          groceryAccountKey,
+          groceryBudget: includeGroceryReserve ? groceryBudget : null,
+          accountRegistry,
+          userMode,
+          novaConfig,
+          now,
+        });
+        projectedBalance = projection.projectedBalance;
+        eventLog = projection.eventLog || [];
+      }
+
+      balanceCents += projectedBalance;
+
+      for (const event of eventLog) {
+        const amount = event.amountCents || 0;
+        if (event.type === 'income') {
+          incomeCents += amount;
+        } else if (event.type === 'bill') {
+          billOutflowCents += Math.abs(amount);
+          outflowCents += Math.abs(amount);
+        } else if (event.type === 'recurring') {
+          recurringNetCents += amount;
+          if (amount >= 0) {
+            incomeCents += amount;
+          } else {
+            outflowCents += Math.abs(amount);
+          }
+        } else if (event.type === 'grocery') {
+          groceryOutflowCents += Math.abs(amount);
+          outflowCents += Math.abs(amount);
+        }
+      }
+
+      const floor = floorByAccount[accountKey] ?? 0;
+      if (projectedBalance < 0) {
+        state = 'red';
+        riskAccounts.push({ accountKey, projectedBalance, floorCents: floor, state: 'red' });
+      } else if (state !== 'red' && projectedBalance < floor) {
+        state = 'yellow';
+        riskAccounts.push({ accountKey, projectedBalance, floorCents: floor, state: 'yellow' });
+      }
+    }
+
+    return {
+      day,
+      label: forecastPointLabel(day),
+      dateMs: targetDateMs,
+      balanceCents,
+      incomeCents,
+      outflowCents,
+      billOutflowCents,
+      recurringNetCents,
+      groceryOutflowCents,
+      state: profileAccounts.length === 0 ? 'neutral' : state,
+      riskAccounts,
+    };
+  });
+
+  const minPoint = points.reduce((lowest, point) => (
+    !lowest || point.balanceCents < lowest.balanceCents ? point : lowest
+  ), null);
+  const startingBalanceCents = points[0]?.balanceCents || 0;
+  const endingBalanceCents = points[points.length - 1]?.balanceCents || startingBalanceCents;
+
+  return {
+    profile,
+    horizonDays,
+    accountKeys: profileAccounts,
+    accountCount: profileAccounts.length,
+    floorCents,
+    points,
+    startingBalanceCents,
+    endingBalanceCents,
+    deltaCents: endingBalanceCents - startingBalanceCents,
+    minBalanceCents: minPoint?.balanceCents || 0,
+    minDay: minPoint?.day || 0,
+    state: points.some(point => point.state === 'red')
+      ? 'red'
+      : points.some(point => point.state === 'yellow')
+        ? 'yellow'
+        : profileAccounts.length === 0
+          ? 'neutral'
+          : 'green',
+  };
 };
 
 function formatAnnotationDate(ms) {
@@ -593,43 +786,52 @@ export const computeProfileVariance = ({
   incomeEvents,
   groceryBudget,
   varianceConfig = {},
-  massageIncome = [],
-  cleaningIncome = [],
   genericBusinessIncome = [],
   genericBusinessExpenses = [],
-  massageExpenses = [],
-  cleaningExpenses = [],
+  recurringTransactions = [],
   now = Date.now(),
   accountRegistry = [],
   userMode = null,
   novaConfig = {},
+  includeGroceryReserve = true,
 }) => {
   if (profile === 'business') {
     const d = new Date(now);
     const currentMonth = d.getMonth();
     const currentYear = d.getFullYear();
 
-    const activeIncome = [
-      ...(massageIncome || []),
-      ...(cleaningIncome || []),
-      ...(genericBusinessIncome || []),
-    ].filter(r => !r.deleted);
-    const activeMassageExp = (massageExpenses || []).filter(r => !r.deleted);
-    const activeCleaningExp = (cleaningExpenses || []).filter(r => !r.deleted);
+    const activeIncome = (genericBusinessIncome || []).filter(r => !r.deleted);
     const activeGenericExp = (genericBusinessExpenses || []).filter(r => !r.deleted);
-    const allExpenses = [...activeMassageExp, ...activeCleaningExp, ...activeGenericExp];
+    const allExpenses = activeGenericExp;
 
     const totalIncome = activeIncome.reduce((s, r) => s + (r.amountCents || 0), 0);
     const totalExpenses = allExpenses.reduce((s, r) => s + (r.amountCents || 0), 0);
     const balance = totalIncome - totalExpenses;
 
+    const recordDate = (r) => {
+      const raw = r?.date ?? r?.timestamp ?? r?.createdAt ?? null;
+      if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [year, month, day] = raw.split('-').map(Number);
+        return new Date(year, month - 1, day);
+      }
+      return new Date(raw);
+    };
     const isThisMonth = (r) => {
-      const rd = new Date(r.date);
+      const rd = recordDate(r);
+      if (!Number.isFinite(rd.getTime())) return false;
       return rd.getMonth() === currentMonth && rd.getFullYear() === currentYear;
     };
     const monthIncome = activeIncome.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
     const monthExpenses = allExpenses.filter(isThisMonth).reduce((s, r) => s + (r.amountCents || 0), 0);
-    const variance = monthIncome - monthExpenses;
+    const monthStart = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0).getTime();
+    const monthEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999).getTime();
+    const recurringBusinessNet = getRecurringTransactionEventsBetween(recurringTransactions, monthStart, monthEnd)
+      .filter(evt => evt.scope === 'business')
+      .reduce((sum, evt) => {
+        const amount = Math.abs(evt.amountCents || 0);
+        return sum + (evt.direction === 'income' ? amount : -amount);
+      }, 0);
+    const variance = monthIncome - monthExpenses + recurringBusinessNet;
 
     const redThreshold = varianceConfig?.redThresholdCents ?? -30000;
     let state, annotation;
@@ -651,6 +853,16 @@ export const computeProfileVariance = ({
   }
 
   const profileAccounts = getProfileAccounts(profile, accountRegistry);
+  if (profileAccounts.length === 0) {
+    return {
+      balance: 0,
+      variance: 0,
+      state: 'neutral',
+      annotation: 'No accounts configured',
+      dipPeriod: null,
+      redDate: null,
+    };
+  }
   const currentBalance = profileAccounts.reduce((sum, key) => sum + (accounts[key] || 0), 0);
 
   const cycleId = getCurrentCycleId(now);
@@ -666,12 +878,11 @@ export const computeProfileVariance = ({
       if (billPaidInCycle(b, cycleId)) return false;
       return true;
     })
-    .reduce((sum, b) => sum + (b.lastPaidAmountCents != null ? b.lastPaidAmountCents : (b.amountCents ?? b.amount ?? 0)), 0);
+    .reduce((sum, b) => sum + getBillExpectedAmountCents(b), 0);
 
-  // Remaining grocery (household only)
+  // Remaining grocery for the current profile - skipped when caller opts out.
   const groceryWeeklyLimit = groceryBudget?.weeklyLimit || 0;
-  const groceryProfile = userMode === 'solo' ? 'personal' : 'household';
-  const remainingGrocery = profile === groceryProfile
+  const remainingGrocery = (includeGroceryReserve && groceryWeeklyLimit > 0)
     ? getRemainingGroceryReserve(groceryBudget, now, endMs)
     : 0;
 
@@ -680,41 +891,65 @@ export const computeProfileVariance = ({
   const projectedIncomeRemaining = incomeEvts
     .filter(e => profileAccounts.includes(e.accountKey))
     .reduce((sum, e) => sum + e.amountCents, 0);
+  const recurringEvts = getRecurringTransactionEventsBetween(recurringTransactions, now, endMs);
+  const projectedRecurringNet = recurringEvts
+    .filter(e => profileAccounts.includes(e.accountKey))
+    .reduce((sum, e) => {
+      const amount = Math.abs(e.amountCents || 0);
+      return sum + (e.direction === 'income' ? amount : -amount);
+    }, 0);
 
-  const variance = (currentBalance + projectedIncomeRemaining) - (remainingBills + remainingGrocery);
+  const variance = currentBalance + projectedIncomeRemaining + projectedRecurringNet - remainingBills - remainingGrocery;
 
-  // Two-tier 14-day dip scan: yellow floor ($300) and red floor ($0)
-  const primaryAccount = profileAccounts[0];
-  const primaryBalance = accounts[primaryAccount] || 0;
-  const yellowFloor = accountFloors[primaryAccount] ?? (accountFloors.others ?? 0);
+  const forecastHorizonDays = normalizeForecastHorizon(novaConfig?.cashFlowForecastHorizonDays, 30);
 
-  const { dipsBelowFloor: dipsYellow, triggerBillName: yellowTrigger } = findMinimumProjectedBalance({
-    currentBalance: primaryBalance,
-    accountKey: primaryAccount,
-    bills: allBills,
-    incomeEvents,
-    daysAhead: 14,
-    floorCents: yellowFloor,
-    groceryBudget: null,
-    groceryAccountKey: null,
-    accountRegistry,
-    userMode,
-    novaConfig,
+  // Two-tier dip scan: scan every account in the profile, not only the first one.
+  const groceryAccountKeyForScan = (includeGroceryReserve && groceryWeeklyLimit > 0)
+    ? getAccountKeyByRole(profile, accountRegistry, null)
+    : null;
+
+  const accountScans = profileAccounts.map(accountKey => {
+    const accountBalance = accounts[accountKey] || 0;
+    const yellowFloor = accountFloors[accountKey] ?? (accountFloors.others ?? 0);
+    const yellow = findMinimumProjectedBalance({
+      currentBalance: accountBalance,
+      accountKey,
+      bills: allBills,
+      incomeEvents,
+      recurringTransactions,
+      daysAhead: forecastHorizonDays,
+      floorCents: yellowFloor,
+      groceryBudget: includeGroceryReserve ? groceryBudget : null,
+      groceryAccountKey: groceryAccountKeyForScan,
+      accountRegistry,
+      userMode,
+      novaConfig,
+      now,
+    });
+    const red = findMinimumProjectedBalance({
+      currentBalance: accountBalance,
+      accountKey,
+      bills: allBills,
+      incomeEvents,
+      recurringTransactions,
+      daysAhead: forecastHorizonDays,
+      floorCents: 0,
+      groceryBudget: null,
+      groceryAccountKey: null,
+      accountRegistry,
+      userMode,
+      novaConfig,
+      now,
+    });
+    return { accountKey, yellow, red };
   });
 
-  const { dipsBelowFloor: dipsRed, triggerBillName: redTrigger } = findMinimumProjectedBalance({
-    currentBalance: primaryBalance,
-    accountKey: primaryAccount,
-    bills: allBills,
-    incomeEvents,
-    daysAhead: 14,
-    floorCents: 0,
-    groceryBudget: null,
-    groceryAccountKey: null,
-    accountRegistry,
-    userMode,
-    novaConfig,
-  });
+  const yellowScan = accountScans.find(scan => scan.yellow.dipsBelowFloor);
+  const redScan = accountScans.find(scan => scan.red.dipsBelowFloor);
+  const dipsYellow = !!yellowScan;
+  const dipsRed = !!redScan;
+  const yellowTrigger = yellowScan?.yellow?.triggerBillName || null;
+  const redTrigger = redScan?.red?.triggerBillName || null;
 
   const redVarianceThreshold = varianceConfig?.redThresholdCents ?? -30000;
 
@@ -733,7 +968,13 @@ export const computeProfileVariance = ({
   if (state === 'green') {
     annotation = variance > 50000 ? 'On track for rollover' : 'On track';
   } else if (state === 'yellow') {
-    annotation = yellowTrigger ? `Enters yellow with ${yellowTrigger}` : `Projected ${formatCentsShort(variance)} by cycle end`;
+    if (yellowTrigger) {
+      annotation = `Enters yellow with ${yellowTrigger}`;
+    } else if (dipsYellow && includeGroceryReserve && remainingGrocery > 0 && !yellowTrigger) {
+      annotation = 'Below floor after grocery reserve';
+    } else {
+      annotation = `Projected ${formatCentsShort(variance)} by cycle end`;
+    }
   } else if (state === 'red') {
     annotation = redTrigger ? `Enters red with ${redTrigger}` : `Projected ${formatCentsShort(variance)} by cycle end`;
   } else {

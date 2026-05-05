@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, StatusBar,
+  View, Text, TouchableOpacity, StyleSheet, StatusBar, Switch,
   ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import theme from '../../config/theme.config';
@@ -13,7 +13,7 @@ const DEFAULT_ACCOUNT_OPTIONS = [
   { key: 'entChecking', label: 'Personal Checking' },
 ];
 
-const BLANK = { name: '', amount: '', dueDay: '', accountKey: null };
+const BLANK = { name: '', amount: '', dueDay: '', accountKey: null, billType: 'bill', amountType: 'dynamic', isStaticAmount: false, autoPostEnabled: false };
 
 export default function OnboardingBillsScreen({ navigation }) {
   const { wizardState, updateWizard } = useWizard();
@@ -35,6 +35,13 @@ export default function OnboardingBillsScreen({ navigation }) {
       expectedDay: day,
       dueDay: day,
       defaultAccountKey: form.accountKey,
+      billType: form.billType === 'subscription' ? 'subscription' : 'bill',
+      kind: form.billType === 'subscription' ? 'subscription' : 'bill',
+      amountType: form.isStaticAmount ? 'static' : 'dynamic',
+      isStaticAmount: !!form.isStaticAmount,
+      autoPostEnabled: !!form.isStaticAmount && !!form.autoPostEnabled,
+      isAutoPost: !!form.isStaticAmount && !!form.autoPostEnabled,
+      isAutoDraft: !!form.isStaticAmount && !!form.autoPostEnabled,
       isActive: true,
     };
     const updated = [...bills, bill];
@@ -79,6 +86,9 @@ export default function OnboardingBillsScreen({ navigation }) {
                   return found ? found.label : 'Unassigned';
                 })()}
               </Text>
+              <Text style={styles.billMeta}>
+                {b.billType === 'subscription' ? 'Subscription' : 'Bill'} - {b.isStaticAmount ? `Fixed amount - ${b.autoPostEnabled ? 'Auto-Post on' : 'manual confirmation'}` : 'Variable amount - manual confirmation'}
+              </Text>
             </View>
             <TouchableOpacity onPress={() => handleRemove(b.id)}>
               <Text style={styles.removeBtn}>REMOVE</Text>
@@ -107,7 +117,7 @@ export default function OnboardingBillsScreen({ navigation }) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>ADD BILL</Text>
+            <Text style={styles.sheetTitle}>ADD BILL/SUBSCRIPTION</Text>
             <Text style={styles.fieldLabel}>BILL NAME</Text>
             <TextInput
               style={styles.input}
@@ -134,6 +144,20 @@ export default function OnboardingBillsScreen({ navigation }) {
               placeholderTextColor={theme.textDim}
               keyboardType="number-pad"
             />
+            <Text style={styles.fieldLabel}>TYPE</Text>
+            <View style={styles.pickerRow}>
+              {['bill', 'subscription'].map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.chip, form.billType === type && styles.chipSelected]}
+                  onPress={() => setForm((p) => ({ ...p, billType: type }))}
+                >
+                  <Text style={[styles.chipText, form.billType === type && styles.chipTextSelected]}>
+                    {type.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <Text style={styles.fieldLabel}>ACCOUNT</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.pickerRow}>
@@ -150,6 +174,30 @@ export default function OnboardingBillsScreen({ navigation }) {
                 ))}
               </View>
             </ScrollView>
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Fixed amount?</Text>
+              <Switch
+                value={!!form.isStaticAmount}
+                onValueChange={(v) => setForm((p) => ({ ...p, isStaticAmount: v, amountType: v ? 'static' : 'dynamic', autoPostEnabled: v ? p.autoPostEnabled : false }))}
+                trackColor={{ false: theme.backgroundPanel, true: theme.accentGlow }}
+                thumbColor={form.isStaticAmount ? theme.accent : theme.textDim}
+              />
+            </View>
+            <Text style={styles.helperText}>Fixed amounts can Auto-Post. Variable amounts wait for actual payment confirmation.</Text>
+            {form.isStaticAmount && (
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTextBlock}>
+                  <Text style={styles.toggleLabel}>Auto-Post</Text>
+                  <Text style={styles.helperText}>When on, NOVA deducts this item on its due date. Mark Paid stays available.</Text>
+                </View>
+                <Switch
+                  value={!!form.autoPostEnabled}
+                  onValueChange={(v) => setForm((p) => ({ ...p, autoPostEnabled: v }))}
+                  trackColor={{ false: theme.backgroundPanel, true: theme.accentGlow }}
+                  thumbColor={form.autoPostEnabled ? theme.accent : theme.textDim}
+                />
+              </View>
+            )}
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.sheetCancel} onPress={() => { setForm(BLANK); setShowModal(false); }}>
                 <Text style={styles.backText}>CANCEL</Text>
@@ -197,6 +245,10 @@ const styles = StyleSheet.create({
   chipSelected: { borderColor: theme.accent, backgroundColor: theme.accentGlow },
   chipText: { color: theme.textDim, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary },
   chipTextSelected: { color: theme.accent },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: theme.spacingXS },
+  toggleTextBlock: { flex: 1, paddingRight: theme.spacingSM },
+  toggleLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary },
+  helperText: { color: theme.textDim, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary, lineHeight: 16 },
   sheetActions: { flexDirection: 'row', gap: theme.spacingMD, marginTop: theme.spacingSM },
   sheetCancel: { flex: 1, borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusMD, paddingVertical: theme.spacingMD, alignItems: 'center' },
 });
