@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, TextInput, Switch, StyleSheet, Alert,
+  View, Text, TouchableOpacity, TextInput, Switch, StyleSheet, Alert,
   LayoutAnimation, UIManager, Platform,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCentsShort, parseBillInput } from '../utils/currency';
@@ -27,6 +26,7 @@ import ExportPanel from '../components/ExportPanel';
 import StatementImportPanel from '../components/StatementImportPanel';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import ScrollScreen from '../layout/ScrollScreen';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -128,7 +128,6 @@ function CollapsibleSection({ title, summary, badge, children }) {
 }
 
 export default function SettingsScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const {
     incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
     resetStore, updateVarianceConfig, updateNovaConfig,
@@ -306,10 +305,7 @@ export default function SettingsScreen({ navigation }) {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
       <View style={styles.headerStrip}>
         <Text style={styles.screenTitle}>SETTINGS</Text>
         <Text style={styles.screenSubtitle}>Configuration</Text>
@@ -553,13 +549,12 @@ export default function SettingsScreen({ navigation }) {
       <CollapsibleSection title="ABOUT" summary="Version info & credits">
         <AboutSection />
       </CollapsibleSection>
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.background },
-  content: { padding: theme.spacingMD, paddingBottom: theme.spacingXXL },
+  content: { paddingTop: theme.spacingMD },
   headerStrip: { marginBottom: theme.spacingMD },
   screenTitle: { color: theme.accent, fontSize: theme.fontSizeXL, fontFamily: theme.fontPrimary, fontWeight: 'bold' },
   screenSubtitle: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginTop: theme.spacingXS },

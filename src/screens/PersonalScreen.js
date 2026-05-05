@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, StyleSheet, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, Modal, TextInput, StyleSheet, Alert } from 'react-native';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
 import useStore from '../store/useStore';
@@ -19,6 +18,7 @@ import CashFlowForecastCard from '../components/CashFlowForecastCard';
 import TourCueCard from '../components/TourCueCard';
 import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
 import { submitTransactionPayload } from '../utils/splitTransactions';
+import ScrollScreen from '../layout/ScrollScreen';
 
 function ordinalDay(day) {
   if (day >= 11 && day <= 13) return `${day}th`;
@@ -187,7 +187,6 @@ function PayCycleSummaryCard({ incomeEvents, paycheckSplits, accountRegistry, pa
 }
 
 export default function PersonalScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const {
     accounts,
     accountFloors,
@@ -490,10 +489,7 @@ export default function PersonalScreen({ navigation }) {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
 
       {/* Post-Income Actions */}
       {pendingActions.length > 0 && (
@@ -677,18 +673,13 @@ export default function PersonalScreen({ navigation }) {
         }}
         onClose={() => setCardOrderVisible(false)}
       />
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
   content: {
-    paddingVertical: theme.spacingMD,
-    paddingHorizontal: theme.spacingMD,
+    paddingTop: theme.spacingMD,
   },
   headerStrip: {
     marginBottom: theme.spacingMD,

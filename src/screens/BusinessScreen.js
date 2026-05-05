@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
 import useStore from '../store/useStore';
@@ -13,11 +12,11 @@ import ReceiptAttachmentsCard from '../components/ReceiptAttachmentsCard';
 import SavingsGoalsCard from '../components/SavingsGoalsCard';
 import TourCueCard from '../components/TourCueCard';
 import { SAVINGS_GOALS_CARD_ID, savingsGoalsForScope } from '../utils/savingsGoals';
+import ScrollScreen from '../layout/ScrollScreen';
 
 const searchCopy = personality.transactionSearch;
 
 export default function BusinessScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const [cardOrderVisible, setCardOrderVisible] = useState(false);
   const businessVariance = useStore((s) => s.varianceCache.business);
   const businesses = useStore((s) => s.businesses);
@@ -105,10 +104,7 @@ export default function BusinessScreen({ navigation }) {
     return null;
   };
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
       <View style={styles.headerStrip}>
         <View style={styles.headerTopRow}>
           <Text style={styles.title}>{theme.tabBusiness}</Text>
@@ -175,18 +171,13 @@ export default function BusinessScreen({ navigation }) {
         }}
         onClose={() => setCardOrderVisible(false)}
       />
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
   content: {
-    paddingVertical: theme.spacingMD,
-    paddingHorizontal: theme.spacingMD,
+    paddingTop: theme.spacingMD,
   },
   headerStrip: {
     marginBottom: theme.spacingMD,

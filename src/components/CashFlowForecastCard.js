@@ -4,6 +4,7 @@ import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { formatCentsShort } from '../utils/currency';
+import { useResponsiveLayout } from '../layout/responsive';
 import {
   buildCashFlowForecast,
   FORECAST_HORIZON_OPTIONS,
@@ -162,6 +163,7 @@ function Metric({ label, value, tone = null }) {
 }
 
 function ForecastProfileBlock({ forecast }) {
+  const layout = useResponsiveLayout();
   const color = PROFILE_COLORS[forecast.profile] || theme.accent;
   const deltaSign = forecast.deltaCents > 0 ? '+' : '';
   const lowTone = forecast.minBalanceCents < 0
@@ -197,7 +199,7 @@ function ForecastProfileBlock({ forecast }) {
       {forecast.accountCount > 0 ? (
         <>
           <ForecastLineChart forecast={forecast} color={color} />
-          <View style={styles.metricRow}>
+          <View style={[styles.metricRow, (layout.isNarrow || layout.isLargeText) && styles.metricRowWrap]}>
             <Metric label="START" value={formatCentsShort(forecast.startingBalanceCents)} />
             <Metric label={`NET ${forecast.horizonDays}D`} value={`${deltaSign}${formatCentsShort(forecast.deltaCents)}`} tone={deltaTone} />
             <Metric label="LOW" value={formatCentsShort(forecast.minBalanceCents)} tone={lowTone} />
@@ -213,6 +215,7 @@ function ForecastProfileBlock({ forecast }) {
 }
 
 export default function CashFlowForecastCard({ profile = 'personal', title = null }) {
+  const layout = useResponsiveLayout();
   const accounts = useStore((s) => s.accounts || {});
   const accountFloors = useStore((s) => s.config?.accountFloors || s.accountFloors || {});
   const accountRegistry = useStore((s) => s.accountRegistry || []);
@@ -286,7 +289,7 @@ export default function CashFlowForecastCard({ profile = 'personal', title = nul
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, layout.isNarrow && styles.headerRowStack]}>
         <View style={styles.titleBlock}>
           <Text style={styles.sectionHeader}>{title || 'CASH-FLOW FORECAST'}</Text>
           <Text style={styles.subtitle}>30 / 60 / 90 day projection</Text>
@@ -326,6 +329,10 @@ const styles = StyleSheet.create({
     gap: theme.spacingMD,
     marginBottom: theme.spacingMD,
   },
+  headerRowStack: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
   titleBlock: {
     flex: 1,
     minWidth: 0,
@@ -345,6 +352,7 @@ const styles = StyleSheet.create({
   },
   horizonGroup: {
     flexDirection: 'row',
+    alignSelf: 'flex-start',
     borderWidth: 1,
     borderColor: theme.borderColorDim,
     borderRadius: theme.borderRadiusSM,
@@ -435,11 +443,16 @@ const styles = StyleSheet.create({
   },
   metricRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: theme.spacingSM,
     marginTop: theme.spacingSM,
   },
+  metricRowWrap: {
+    flexDirection: 'column',
+  },
   metric: {
     flex: 1,
+    minHeight: 62,
     minWidth: 0,
     borderWidth: 1,
     borderColor: theme.borderColorDim,

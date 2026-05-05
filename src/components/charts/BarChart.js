@@ -1,7 +1,8 @@
 import React from 'react';
-import { Dimensions, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import Svg, { Rect, Text as SvgText } from 'react-native-svg';
 import theme from '../../config/theme.config';
+import { useResponsiveLayout } from '../../layout/responsive';
 
 const BAR_ZONES = [
   { key: 'household', color: theme.zoneHousehold },
@@ -10,9 +11,10 @@ const BAR_ZONES = [
 ];
 
 export default function BarChart({ months = [], height = 120, series }) {
+  const layout = useResponsiveLayout();
   const [containerWidth, setContainerWidth] = React.useState(0);
   const activeSeries = Array.isArray(series) ? series : BAR_ZONES;
-  const fallbackWidth = Math.max(240, Dimensions.get('window').width - (theme.spacingMD * 4));
+  const fallbackWidth = Math.max(240, layout.contentWidth);
   const width = Math.max(240, containerWidth || fallbackWidth);
   const labelHeight = 22;
   const chartHeight = height - labelHeight;

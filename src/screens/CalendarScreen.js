@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, Modal,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import theme from '../config/theme.config';
@@ -14,9 +14,9 @@ import {
   getGroceryReserveForDate,
 } from '../utils/forecasting';
 import { EditBillModal, EditTransactionModal } from '../components/TransactionModal';
+import { calendarGridMetrics, useResponsiveLayout } from '../layout/responsive';
 
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-const CELL_SIZE = Math.floor(Dimensions.get('window').width / 7);
 const CALENDAR_DOT_TYPES = [
   { key: 'bill', label: 'Bills', color: theme.calendarBillColor },
   { key: 'income', label: 'Income', color: theme.calendarIncomeColor },
@@ -187,6 +187,8 @@ function applyBillFallback(events, fallbackAccountKey) {
 
 export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const insets = useSafeAreaInsets();
+  const layout = useResponsiveLayout();
+  const calendarMetrics = calendarGridMetrics(layout);
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -598,15 +600,15 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
         </View>
       )}
 
-      <View style={styles.dowRow}>
+      <View style={[styles.dowRow, { width: calendarMetrics.gridWidth }]}>
         {DAYS.map(d => (
-          <View key={d} style={styles.dowCell}>
+          <View key={d} style={[styles.dowCell, { width: calendarMetrics.cellSize }]}>
             <Text style={styles.dowText}>{d}</Text>
           </View>
         ))}
       </View>
 
-      <View style={styles.grid}>
+      <View style={[styles.grid, { width: calendarMetrics.gridWidth }]}>
         {(() => {
           const projectionKey = getPrimaryProjectionKey(mode, activeAccounts, accounts);
           return cells.map((cell, idx) => {
@@ -634,6 +636,11 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                 key={idx}
                 style={[
                   styles.cell,
+                  {
+                    width: calendarMetrics.cellSize,
+                    height: calendarMetrics.cellHeight,
+                    padding: calendarMetrics.cellPadding,
+                  },
                   cell.inMonth && getCellRiskStyle(projection, cell.cellMs),
                   todayCell && styles.todayCell,
                   selectedCell && styles.selectedCell,
@@ -877,12 +884,12 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
   },
   dowRow: {
+    alignSelf: 'center',
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColorDim,
   },
   dowCell: {
-    width: CELL_SIZE,
     alignItems: 'center',
     paddingVertical: theme.spacingXS,
   },
@@ -892,16 +899,13 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
   },
   grid: {
+    alignSelf: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    width: CELL_SIZE * 7,
   },
   cell: {
-    width: CELL_SIZE,
-    height: CELL_SIZE,
     borderWidth: 1,
     borderColor: theme.borderColorDim,
-    padding: 2,
     flexDirection: 'column',
     justifyContent: 'space-between',
   },

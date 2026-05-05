@@ -1,11 +1,10 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
+import ScrollScreen from '../layout/ScrollScreen';
 
 export default function BusinessSelectorScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const businesses = useStore((s) => s.businesses);
   const active = (businesses || []).filter((b) => b.isActive !== false);
 
@@ -14,10 +13,7 @@ export default function BusinessSelectorScreen({ navigation }) {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
       <Text style={styles.title}>BUSINESS</Text>
       <Text style={styles.subtitle}>Open a business dashboard</Text>
       {active.length === 0 && (
@@ -36,18 +32,17 @@ export default function BusinessSelectorScreen({ navigation }) {
           <Text style={styles.cardLabel}>{(biz.name || 'Business').toUpperCase()}</Text>
         </TouchableOpacity>
       ))}
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.background },
-  content: { paddingBottom: 32 },
-  title: { color: theme.accent, fontSize: theme.fontSizeXL, fontFamily: theme.fontPrimary, marginTop: 24, marginHorizontal: 16 },
-  subtitle: { color: theme.textSecondary, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary, marginHorizontal: 16, marginBottom: 24 },
-  emptyState: { margin: 16, padding: 24, borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusMD, alignItems: 'center' },
+  content: { paddingTop: theme.spacingLG },
+  title: { color: theme.accent, fontSize: theme.fontSizeXL, fontFamily: theme.fontPrimary },
+  subtitle: { color: theme.textSecondary, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary, marginBottom: 24 },
+  emptyState: { padding: 24, borderWidth: 1, borderColor: theme.borderColor, borderRadius: theme.borderRadiusMD, alignItems: 'center' },
   emptyText: { color: theme.textSecondary, fontSize: theme.fontSizeMD, fontFamily: theme.fontPrimary, marginBottom: 8 },
   emptySubtext: { color: theme.textDim, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, textAlign: 'center' },
-  card: { marginHorizontal: 16, marginVertical: 8, paddingVertical: 32, paddingHorizontal: 20, borderRadius: 12, borderWidth: 2, borderColor: theme.accent, backgroundColor: theme.backgroundCard, alignItems: 'center' },
+  card: { marginVertical: 8, paddingVertical: 32, paddingHorizontal: 20, borderRadius: 12, borderWidth: 2, borderColor: theme.accent, backgroundColor: theme.backgroundCard, alignItems: 'center' },
   cardLabel: { color: theme.accent, fontSize: theme.fontSizeXL, fontFamily: theme.fontPrimary, textAlign: 'center' },
 });

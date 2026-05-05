@@ -1,6 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Modal, StyleSheet, Alert, TextInput } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Alert, TextInput } from 'react-native';
 import DatePickerField from '../components/DatePickerField';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
@@ -20,6 +19,7 @@ import CashFlowForecastCard from '../components/CashFlowForecastCard';
 import TourCueCard from '../components/TourCueCard';
 import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
 import { submitTransactionPayload } from '../utils/splitTransactions';
+import ScrollScreen from '../layout/ScrollScreen';
 
 
 function ordinalDay(day) {
@@ -206,7 +206,6 @@ function ScheduledIncomeEditorModal({
 }
 
 export default function HouseholdScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const novaConfig = useStore((s) => s.novaConfig);
   const userMode = novaConfig?.userMode;
   const accountRegistry = useStore((s) => s.accountRegistry);
@@ -525,10 +524,7 @@ export default function HouseholdScreen({ navigation }) {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
 
       {/* 1. Header strip */}
       <View style={styles.headerStrip}>
@@ -712,7 +708,7 @@ export default function HouseholdScreen({ navigation }) {
         }}
         onClose={() => setIncomeEditorEvent(undefined)}
       />
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
@@ -722,8 +718,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.background,
   },
   content: {
-    paddingVertical: theme.spacingMD,
-    paddingHorizontal: theme.spacingMD,
+    paddingTop: theme.spacingMD,
   },
   headerStrip: {
     marginBottom: theme.spacingMD,

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
 import useStore from '../store/useStore';
@@ -19,6 +18,9 @@ import CashFlowForecastCard from '../components/CashFlowForecastCard';
 import TourCueCard from '../components/TourCueCard';
 import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
 import { buildActiveAccountOptions, submitTransactionPayload } from '../utils/splitTransactions';
+import ScrollScreen from '../layout/ScrollScreen';
+import ResponsiveGrid from '../layout/ResponsiveGrid';
+import { useResponsiveLayout } from '../layout/responsive';
 
 const PROFILE_LABELS = { household: 'Household', personal: 'Personal', business: 'Business' };
 const PROFILE_COLORS = {
@@ -154,7 +156,7 @@ function BadgePreviewCard({ badgeState, entrepreneurMode }) {
 }
 
 export default function DashboardScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
+  const layout = useResponsiveLayout();
   const householdData = useStore((s) => s.varianceCache.household);
   const personalData  = useStore((s) => s.varianceCache.personal);
   const businessData  = useStore((s) => s.varianceCache.business);
@@ -244,7 +246,7 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const renderVarianceOverviewCard = () => (
-    <View style={styles.cardsContainer}>
+    <ResponsiveGrid minColumnWidth={layout.isNarrow ? 260 : 220} maxColumns={3} style={styles.cardsContainer}>
       {showHousehold && (
         <VarianceCard profile="household" data={householdData || { balance: 0, variance: 0, state: 'neutral', annotation: '-' }} onPress={() => navigateTo('household')} />
       )}
@@ -252,11 +254,11 @@ export default function DashboardScreen({ navigation }) {
       {showBusiness && (
         <VarianceCard profile="business" data={businessData || { balance: 0, variance: 0, state: 'neutral', annotation: '-' }} onPress={() => navigateTo('business')} />
       )}
-    </View>
+    </ResponsiveGrid>
   );
 
   const renderQuickActionsCard = () => (
-    <View style={styles.quickRow}>
+    <View style={[styles.quickRow, layout.isNarrow && styles.quickRowNarrow]}>
       <TouchableOpacity
         style={styles.quickBtn}
         onPress={() => navigation?.navigate('Calendar', { mode: 'dashboard' })}
@@ -318,15 +320,12 @@ export default function DashboardScreen({ navigation }) {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
       {/* Header */}
       <View style={styles.headerBlock}>
-        <View style={styles.headerTopRow}>
+        <View style={[styles.headerTopRow, layout.isNarrow && styles.headerTopStack]}>
           <Text style={styles.screenTitle}>DASHBOARD</Text>
-          <View style={styles.headerButtonRow}>
+          <View style={[styles.headerButtonRow, layout.isNarrow && styles.headerButtonRowWrap]}>
             <TouchableOpacity
               style={styles.reportsBtn}
               onPress={() => navigation?.navigate('Reports')}
@@ -347,7 +346,7 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         </View>
-        <View style={styles.headerMetaRow}>
+        <View style={[styles.headerMetaRow, layout.isNarrow && styles.headerMetaStack]}>
           <Text style={styles.headerMetaLabel}>{lastLoggedLabel}</Text>
           <Text style={styles.headerMetaLabel}>Cycle: {cycleLabel}</Text>
         </View>
@@ -393,18 +392,13 @@ export default function DashboardScreen({ navigation }) {
         }}
         onClose={() => setCardOrderVisible(false)}
       />
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
   content: {
-    paddingVertical: theme.spacingMD,
-    paddingHorizontal: theme.spacingMD,
+    paddingTop: theme.spacingMD,
   },
   headerBlock: {
     marginBottom: theme.spacingMD,
@@ -415,6 +409,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: theme.spacingMD,
   },
+  headerTopStack: {
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
   headerMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -422,10 +420,19 @@ const styles = StyleSheet.create({
     minHeight: 18,
     marginTop: 4,
   },
+  headerMetaStack: {
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
   headerButtonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacingXS,
+  },
+  headerButtonRowWrap: {
+    flexWrap: 'wrap',
+    width: '100%',
   },
   reportsBtn: {
     height: 34,
@@ -487,8 +494,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.fontPrimary,
   },
   cardsContainer: {
-    gap: theme.spacingMD,
-    marginBottom: theme.spacingMD,
+    marginBottom: 0,
   },
   card: {
     padding: theme.spacingLG,
@@ -534,8 +540,12 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacingMD,
     gap: theme.spacingXS,
   },
+  quickRowNarrow: {
+    flexWrap: 'wrap',
+  },
   quickBtn: {
     flex: 1,
+    minWidth: 150,
     backgroundColor: theme.backgroundCard,
     borderWidth: 1,
     borderColor: theme.borderColorDim,

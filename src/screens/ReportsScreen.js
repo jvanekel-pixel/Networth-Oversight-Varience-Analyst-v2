@@ -1,17 +1,16 @@
 import React, { useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import theme from '../config/theme.config';
 import personality from '../config/personality.config';
 import SpendingChartsSection from '../components/SpendingChartsSection';
 import SpendingTrendsReport from '../components/SpendingTrendsReport';
 import ExportPanel from '../components/ExportPanel';
 import useStore from '../store/useStore';
+import ScrollScreen from '../layout/ScrollScreen';
 
 const copy = personality.reports;
 
 export default function ReportsScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
   const rotateFlavorTextForEvent = useStore((s) => s.rotateFlavorTextForEvent);
 
   useEffect(() => {
@@ -19,10 +18,7 @@ export default function ReportsScreen({ navigation }) {
   }, [rotateFlavorTextForEvent]);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: theme.spacingXXL + Math.max(insets.bottom, theme.spacingMD) }]}
-    >
+    <ScrollScreen contentStyle={styles.content}>
       <View style={styles.headerRow}>
         <View>
           <Text style={styles.screenTitle}>{copy.title}</Text>
@@ -37,18 +33,13 @@ export default function ReportsScreen({ navigation }) {
       <SpendingTrendsReport />
 
       <ExportPanel />
-    </ScrollView>
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
   content: {
-    paddingHorizontal: theme.spacingMD,
-    paddingVertical: theme.spacingMD,
+    paddingTop: theme.spacingMD,
   },
   headerRow: {
     flexDirection: 'row',
