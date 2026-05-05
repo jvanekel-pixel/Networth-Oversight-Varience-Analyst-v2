@@ -221,7 +221,6 @@ export default function CashFlowForecastCard({ profile = 'personal', title = nul
   const incomeEvents = useStore((s) => s.incomeEvents || {});
   const groceryBudget = useStore((s) => s.groceryBudget || null);
   const personalGroceryBudget = useStore((s) => s.personalGroceryBudget || null);
-  const recurringTransactions = useStore((s) => s.recurringTransactions || []);
   const includeGroceryReserve = useStore((s) => s.groceryReserveOn !== false);
   const novaConfig = useStore((s) => s.novaConfig || {});
   const updateNovaConfig = useStore((s) => s.updateNovaConfig);
@@ -244,7 +243,6 @@ export default function CashFlowForecastCard({ profile = 'personal', title = nul
     accountFloors,
     bills,
     incomeEvents,
-    recurringTransactions,
     groceryBudget,
     personalGroceryBudget,
     horizon,
@@ -256,7 +254,7 @@ export default function CashFlowForecastCard({ profile = 'personal', title = nul
     accountFloors,
     bills,
     incomeEvents,
-    recurringTransactions,
+    recurringTransactions: [],
     groceryBudget: scope === 'personal' ? personalGroceryBudget : groceryBudget,
     accountRegistry,
     userMode,
@@ -270,7 +268,6 @@ export default function CashFlowForecastCard({ profile = 'personal', title = nul
     accountFloors,
     bills,
     incomeEvents,
-    recurringTransactions,
     groceryBudget,
     personalGroceryBudget,
     accountRegistry,

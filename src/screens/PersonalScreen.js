@@ -14,9 +14,7 @@ import CardOrderLink from '../components/settings/CardOrderLink';
 import SpendingChartsSection from '../components/SpendingChartsSection';
 import SpendingCategoryManagerCard from '../components/SpendingCategoryManagerCard';
 import ReceiptAttachmentsCard, { TransactionReceiptModal } from '../components/ReceiptAttachmentsCard';
-import RecurringTransactionsCard from '../components/RecurringTransactionsCard';
 import { SAVINGS_GOALS_CARD_ID, savingsGoalsForScope } from '../utils/savingsGoals';
-import { RECURRING_TRANSACTIONS_CARD_ID } from '../utils/recurringTransactions';
 import CashFlowForecastCard from '../components/CashFlowForecastCard';
 import TourCueCard from '../components/TourCueCard';
 import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
@@ -302,7 +300,6 @@ export default function PersonalScreen({ navigation }) {
     'spending_categories',
     'accounts',
     'pay_cycle',
-    RECURRING_TRANSACTIONS_CARD_ID,
     SAVINGS_GOALS_CARD_ID,
     'bills',
     'grocery',
@@ -316,7 +313,6 @@ export default function PersonalScreen({ navigation }) {
     { id: 'spending_categories', label: 'Spending Categories' },
     { id: 'accounts', label: 'Account Balances' },
     { id: 'pay_cycle', label: 'Pay Cycle' },
-    { id: RECURRING_TRANSACTIONS_CARD_ID, label: 'Recurring Items' },
     { id: SAVINGS_GOALS_CARD_ID, label: 'Savings Goals' },
     { id: 'bills', label: 'Bills & Subscriptions' },
     { id: 'grocery', label: 'Grocery Spending' },
@@ -475,15 +471,6 @@ export default function PersonalScreen({ navigation }) {
           accountRegistry={accountRegistry}
           scope="personal"
           title="SAVINGS GOALS"
-        />
-      );
-    }
-    if (id === RECURRING_TRANSACTIONS_CARD_ID) {
-      return (
-        <RecurringTransactionsCard
-          scope="personal"
-          accountOptions={personalAccountOptions}
-          title="RECURRING ITEMS"
         />
       );
     }

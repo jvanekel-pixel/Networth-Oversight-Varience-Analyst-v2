@@ -5,13 +5,10 @@ import { parseCentsInput, formatCents, formatCentsInputValue, formatCentsShort, 
 import useStore from '../store/useStore';
 import { getActiveSpendingCategoryNames } from './SpendingCategoryManagerCard';
 import {
-  CATEGORY_BILLS,
-  CATEGORY_SUBSCRIPTIONS,
   CATEGORY_UNCATEGORIZED,
   categoryKey,
 } from '../utils/spendingCategories';
 import { buildActiveAccountOptions } from '../utils/splitTransactions';
-import { RECURRING_FREQUENCIES, addRecurringInterval, localDateKey } from '../utils/recurringTransactions';
 
 const DEFAULT_INCOME_CATEGORIES = ['Income', 'Other'];
 
@@ -77,20 +74,6 @@ function getAccountOptionsKey(options = []) {
   return (options || []).map(option => option.key).join('|');
 }
 
-function isRecurringExpenseCategory(value) {
-  const key = categoryKey(value);
-  return key === categoryKey(CATEGORY_BILLS) || key === categoryKey(CATEGORY_SUBSCRIPTIONS);
-}
-
-function isValidRecurringFrequency(value) {
-  return RECURRING_FREQUENCIES.some(option => option.value === value);
-}
-
-function getRecurringScope(profile, accountChoices = [], accountKey = null) {
-  if (profile === 'household' || profile === 'personal' || profile === 'business') return profile;
-  return accountChoices.find(option => option.key === accountKey)?.role || 'personal';
-}
-
 function getScopedAccountChoices({ accountOptions = [], accountRegistry = [], accounts = {}, profile = null, defaultAccountKey = null, accountName = null }) {
   const propOptions = normalizeAccountOptions(accountOptions);
   if (propOptions.length > 0) return propOptions;
@@ -119,7 +102,6 @@ export function LogTransactionModal({
   const scheduledIncomeEvents = useStore((s) => s.incomeEvents?.scheduledIncomeEvents || []);
   const accountRegistry = useStore((s) => s.accountRegistry);
   const accounts = useStore((s) => s.accounts);
-  const addRecurringTransaction = useStore((s) => s.addRecurringTransaction);
   const [amountRaw, setAmountRaw] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
@@ -131,9 +113,6 @@ export function LogTransactionModal({
   const [splitOneAccountKey, setSplitOneAccountKey] = useState('');
   const [splitTwoAccountKey, setSplitTwoAccountKey] = useState('');
   const [selectedAccountKey, setSelectedAccountKey] = useState('');
-  const [recurringEnabled, setRecurringEnabled] = useState(false);
-  const [recurringFrequency, setRecurringFrequency] = useState('monthly');
-  const [recurringTitle, setRecurringTitle] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const incomeCategories = uniqueCategories([
@@ -157,11 +136,6 @@ export function LogTransactionModal({
   const categories = type === 'income' ? incomeCategories : expenseCategories;
   const initialExpenseCategories = getExpenseCategories(spendingBuckets, profile, fallbackSplitAccountKey);
   const initialCategories = type === 'income' ? incomeCategories : initialExpenseCategories;
-  const selectedCategory = category || '';
-  const showRecurringPrompt =
-    type === 'expense' &&
-    !splitEnabled &&
-    isRecurringExpenseCategory(selectedCategory);
   const splitCanSubmit =
     previewCents > 0 &&
     splitOneCents > 0 &&
@@ -194,9 +168,6 @@ export function LogTransactionModal({
     setSplitOneAccountKey(fallbackSplitAccountKey);
     setSplitTwoAccountKey(fallbackSplitAccountKey);
     setSelectedAccountKey(fallbackSplitAccountKey);
-    setRecurringEnabled(false);
-    setRecurringFrequency('monthly');
-    setRecurringTitle(initialDraft?.description || '');
     setIsSubmitting(false);
   }, [visible, fallbackSplitAccountKey, initialCategories.join('|'), initialDraftKey, type]);
 
@@ -219,9 +190,6 @@ export function LogTransactionModal({
     setSplitOneAccountKey('');
     setSplitTwoAccountKey('');
     setSelectedAccountKey('');
-    setRecurringEnabled(false);
-    setRecurringFrequency('monthly');
-    setRecurringTitle('');
     setIsSubmitting(false);
   };
 
@@ -230,40 +198,10 @@ export function LogTransactionModal({
   const handleSplitToggle = (next) => {
     setSplitEnabled(next);
     if (next) {
-      setRecurringEnabled(false);
       const fallback = selectedSingleAccountKey || fallbackSplitAccountKey;
       setSplitOneAccountKey(prev => prev || fallback);
       setSplitTwoAccountKey(prev => prev || fallback);
     }
-  };
-
-  const handleCategorySelect = (nextCategory) => {
-    setCategory(nextCategory);
-    if (!isRecurringExpenseCategory(nextCategory)) setRecurringEnabled(false);
-  };
-
-  const maybeAddRecurringExpense = async (submittedCategory, savedTx = null) => {
-    if (!recurringEnabled || !showRecurringPrompt || !addRecurringTransaction) return;
-    const cleanFrequency = isValidRecurringFrequency(recurringFrequency) ? recurringFrequency : 'monthly';
-    const startDate = localDateKey(Date.now());
-    const nextDueDate = localDateKey(addRecurringInterval(startDate, cleanFrequency));
-    const title = String(recurringTitle || description || submittedCategory || 'Recurring expense').trim();
-    await addRecurringTransaction({
-      title,
-      amountCents: previewCents,
-      direction: 'expense',
-      category: submittedCategory,
-      accountKey: selectedSingleAccountKey,
-      scope: getRecurringScope(profile, accountChoices, selectedSingleAccountKey),
-      frequency: cleanFrequency,
-      startDate,
-      nextDueDate,
-      reminderEnabled: true,
-      notes: String(description || '').trim(),
-      sourceTransactionId: savedTx?.id || null,
-      lastCompletedTransactionId: savedTx?.id || null,
-      lastCompletedDate: startDate,
-    });
   };
 
   const handleSubmit = async () => {
@@ -296,13 +234,12 @@ export function LogTransactionModal({
       return;
     }
     const submittedCategory = getSubmittedCategory(type === 'income', category, categories);
-    const savedTx = await onSubmit({
+    await onSubmit({
       accountKey: selectedSingleAccountKey,
       amountCents: signed,
       category: submittedCategory,
       description,
     });
-    await maybeAddRecurringExpense(submittedCategory, savedTx);
     reset();
     onClose();
   };
@@ -451,56 +388,12 @@ export function LogTransactionModal({
                     <TouchableOpacity
                       key={cat}
                       style={[styles.catBtn, category === cat && styles.catBtnActive]}
-                      onPress={() => handleCategorySelect(cat)}
+                      onPress={() => setCategory(cat)}
                     >
                       <Text style={[styles.catText, category === cat && styles.catTextActive]}>{cat}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
-                {showRecurringPrompt && (
-                  <>
-                    <Text style={styles.label}>Add to calendar?</Text>
-                    <View style={styles.catRow}>
-                      <TouchableOpacity
-                        style={[styles.catBtn, !recurringEnabled && styles.catBtnActive]}
-                        onPress={() => setRecurringEnabled(false)}
-                      >
-                        <Text style={[styles.catText, !recurringEnabled && styles.catTextActive]}>ONE-OFF</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.catBtn, recurringEnabled && styles.catBtnActive]}
-                        onPress={() => setRecurringEnabled(true)}
-                      >
-                        <Text style={[styles.catText, recurringEnabled && styles.catTextActive]}>RECURRING</Text>
-                      </TouchableOpacity>
-                    </View>
-                    {recurringEnabled && (
-                      <>
-                        <Text style={styles.splitSubLabel}>Frequency</Text>
-                        <View style={styles.catRow}>
-                          {RECURRING_FREQUENCIES.map(option => (
-                            <TouchableOpacity
-                              key={option.value}
-                              style={[styles.catBtn, recurringFrequency === option.value && styles.catBtnActive]}
-                              onPress={() => setRecurringFrequency(option.value)}
-                            >
-                              <Text style={[styles.catText, recurringFrequency === option.value && styles.catTextActive]}>
-                                {option.label}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                        <TextInput
-                          style={styles.input}
-                          placeholder="Calendar name"
-                          placeholderTextColor={theme.textDim}
-                          value={recurringTitle}
-                          onChangeText={setRecurringTitle}
-                        />
-                      </>
-                    )}
-                  </>
-                )}
               </>
             )}
 

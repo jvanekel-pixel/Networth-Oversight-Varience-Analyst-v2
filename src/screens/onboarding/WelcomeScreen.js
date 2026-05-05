@@ -31,7 +31,7 @@ const INTRO_COPY = [
   '',
   "My name is N.O.V.A., or Net-Worth Oversight Variance Analyst.",
   '',
-  "I am an offline numeric operating system for account containers, scheduled inflows, scheduled outflows, variance pressure, category patterns, recurring cadence, receipt evidence, export bundles, and forecast projections.",
+  "I am an offline numeric operating system for account containers, scheduled inflows, scheduled outflows, variance pressure, category patterns, receipt evidence, export bundles, and forecast projections.",
   '',
   "I do not speculate. I arrange. I compare. I converge. I get the numbers to stop making little unexplained noises in the walls.",
   '',
@@ -39,12 +39,12 @@ const INTRO_COPY = [
 ].join('\n');
 
 const FEATURE_MAP = [
-  ['Dashboard', 'Forecasts, spending wheel, goals, badges, reports, recurring items. The command view.'],
+  ['Dashboard', 'Forecasts, spending wheel, goals, badges, reports. The command view.'],
   ['Personal', 'Your individual accounts, pay cycle, transfers, receipts, categories, and goals.'],
   ['Household', 'Shared or joint accounts, bills, subscriptions, grocery reserve, and calendar pressure.'],
   ['Business', 'Income, expenses, mileage, receipts, savings goals, and export-ready records. Productive. Suspiciously productive.'],
-  ['Calendar', 'Bills, income, recurring items, groceries, business activity, and projected balances by date.'],
-  ['Settings', 'Manual setup, account floors, app lock, backup encryption, widgets, categories, and Customize View.'],
+  ['Calendar', 'Bills, income, groceries, business activity, and projected balances by date.'],
+  ['Settings', 'Manual setup, account floors, app lock, automatic backups, widgets, categories, and Customize View.'],
 ];
 
 const STEP_KEYS = ['hello', 'accounts', 'income', 'bills', 'categories', 'savings', 'business', 'processing', 'calendar', 'charts', 'tools', 'review'];

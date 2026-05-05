@@ -20,13 +20,13 @@ import SpendingBucketsSection from '../components/settings/SpendingBucketsSectio
 import SavingsGoalSection from '../components/settings/SavingsGoalSection';
 import AndroidWidgetSettingsSection from '../components/settings/AndroidWidgetSettingsSection';
 import AppLockSettingsSection from '../components/settings/AppLockSettingsSection';
-import BackupEncryptionSection from '../components/settings/BackupEncryptionSection';
 import EntrepreneurModeSection from '../components/settings/EntrepreneurModeSection';
 import PartnerDepositSection from '../components/settings/PartnerDepositSection';
 import PaycheckSplitSheet from '../components/settings/PaycheckSplitSheet';
 import ExportPanel from '../components/ExportPanel';
 import StatementImportPanel from '../components/StatementImportPanel';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -41,6 +41,7 @@ const FREQ_OPTIONS = [
 
 const EXPORT_SCHEDULE_OPTIONS = [
   { label: 'Off',         value: 'off' },
+  { label: 'Real-time',   value: 'realtime' },
   { label: 'Daily',       value: 'daily' },
   { label: 'Weekly',      value: 'weekly' },
   { label: 'Precise',     value: 'precise' },
@@ -132,7 +133,7 @@ export default function SettingsScreen({ navigation }) {
     incomeEvents, varianceConfig, novaConfig, updateConfig, recomputeVariance,
     resetStore, updateVarianceConfig, updateNovaConfig,
   } = useStore();
-  const { importAllData } = useExport();
+  const { importAllData, saveExportConfig } = useExport();
 
   const [payFrequency, setPayFrequency] = useState('biweekly');
   const [pcMonth, setPcMonth] = useState('');
@@ -149,7 +150,7 @@ export default function SettingsScreen({ navigation }) {
   const [exportSchedule, setExportSchedule] = useState('off');
   const [exportPreciseDates, setExportPreciseDates] = useState('');
   const [exportDestinationLabel, setExportDestinationLabel] = useState('');
-  const [importPassphrase, setImportPassphrase] = useState('');
+  const [backupDirectoryUri, setBackupDirectoryUri] = useState('');
 
   const [paydayReminderEnabled, setPaydayReminderEnabled] = useState(
     notificationsConfig.paydayReminder.enabled ?? true
@@ -192,6 +193,7 @@ export default function SettingsScreen({ navigation }) {
         const preciseDates = Array.isArray(cfg.preciseDates) ? cfg.preciseDates.join(', ') : (cfg.preciseDates || '');
         setExportPreciseDates(preciseDates);
         setExportDestinationLabel(cfg.destinationLabel || '');
+        setBackupDirectoryUri(cfg.backupDirectoryUri || '');
       }
     });
     AsyncStorage.getItem('nova_v2_notif_toggles').then(raw => {
@@ -280,6 +282,27 @@ export default function SettingsScreen({ navigation }) {
     const raw = await AsyncStorage.getItem('nova_v2_export_config');
     const cfg = raw ? JSON.parse(raw) : {};
     await AsyncStorage.setItem('nova_v2_export_config', JSON.stringify({ ...cfg, destinationLabel: exportDestinationLabel.trim() }));
+  };
+
+  const handleChooseBackupFolder = async () => {
+    if (!FileSystem.StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+      Alert.alert('Folder backup unavailable', 'This Android build cannot choose a backup folder.');
+      return;
+    }
+    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!permissions.granted || !permissions.directoryUri) return;
+    setBackupDirectoryUri(permissions.directoryUri);
+    await saveExportConfig({
+      backupDirectoryUri: permissions.directoryUri,
+      destinationLabel: exportDestinationLabel.trim() || 'NOVA Backups folder',
+    });
+    if (!exportDestinationLabel.trim()) setExportDestinationLabel('NOVA Backups folder');
+    Alert.alert('Backup folder saved', 'Manual, scheduled, and real-time JSON backups will save there.');
+  };
+
+  const handleClearBackupFolder = async () => {
+    setBackupDirectoryUri('');
+    await saveExportConfig({ backupDirectoryUri: '' });
   };
 
   return (
@@ -452,12 +475,24 @@ export default function SettingsScreen({ navigation }) {
       {/* DATA */}
       <CollapsibleSection title="DATA" summary="Export, import & factory reset">
         <SectionHeader title="EXPORT / IMPORT" />
-        <Text style={styles.previewText}>No cloud sync. Full system backups can be run manually or by schedule.</Text>
-        <SectionHeader title="BACKUP ENCRYPTION" />
-        <BackupEncryptionSection />
-        <SubDivider />
+        <Text style={styles.previewText}>No cloud sync. Choose a backup folder once; JSON backups will save there without the share sheet.</Text>
+        <SectionHeader title="BACKUP FOLDER" />
+        <Text style={styles.v2Note}>
+          {backupDirectoryUri ? 'Backup folder connected.' : 'No backup folder selected yet.'}
+        </Text>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleChooseBackupFolder}>
+          <Text style={styles.saveBtnText}>{backupDirectoryUri ? 'CHANGE BACKUP FOLDER' : 'CHOOSE BACKUP FOLDER'}</Text>
+        </TouchableOpacity>
+        {backupDirectoryUri ? (
+          <TouchableOpacity style={[styles.importBtn, styles.folderClearBtn]} onPress={handleClearBackupFolder}>
+            <Text style={styles.importBtnText}>CLEAR BACKUP FOLDER</Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={styles.label}>Auto-export schedule</Text>
         <SegmentedControl options={EXPORT_SCHEDULE_OPTIONS} value={exportSchedule} onChange={handleSaveExportSchedule} />
+        {exportSchedule === 'realtime' && (
+          <Text style={styles.previewText}>Real-time backups run after ledger changes, throttled to about once per minute.</Text>
+        )}
         {exportSchedule === 'precise' && (
           <>
             <Text style={styles.label}>Precise backup dates</Text>
@@ -481,20 +516,9 @@ export default function SettingsScreen({ navigation }) {
           placeholderTextColor={theme.textDim}
         />
         <ExportPanel destinationLabel={exportDestinationLabel.trim()} />
-        <Text style={styles.label}>Encrypted import password</Text>
-        <TextInput
-          style={styles.input}
-          value={importPassphrase}
-          onChangeText={setImportPassphrase}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="Only needed for encrypted NOVA backups"
-          placeholderTextColor={theme.textDim}
-        />
         <TouchableOpacity
           style={[styles.saveBtn, styles.importBtn]}
-          onPress={() => importAllData({ backupPassphrase: importPassphrase })}
+          onPress={() => importAllData()}
         >
           <Text style={styles.importBtnText}>IMPORT NOVA BACKUP</Text>
         </TouchableOpacity>
@@ -622,6 +646,7 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: theme.spacingSM, borderBottomWidth: 1, borderBottomColor: theme.borderColorDim },
   toggleLabel: { color: theme.textPrimary, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, flex: 1 },
   importBtn: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.accent, marginTop: theme.spacingSM },
+  folderClearBtn: { borderRadius: theme.borderRadiusMD, padding: theme.spacingMD, alignItems: 'center' },
   importBtnText: { color: theme.accent, fontFamily: theme.fontPrimary, fontSize: theme.fontSizeMD, fontWeight: 'bold' },
   dangerHeader: { color: theme.statusDanger, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, fontWeight: 'bold', marginBottom: theme.spacingSM, letterSpacing: 1 },
   dangerLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS, marginTop: theme.spacingSM },

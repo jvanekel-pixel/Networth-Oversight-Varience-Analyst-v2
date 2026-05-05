@@ -1,5 +1,3 @@
-export const RECURRING_TRANSACTIONS_CARD_ID = 'recurring_transactions';
-
 export const RECURRING_FREQUENCIES = [
   { value: 'weekly', label: 'WEEKLY' },
   { value: 'biweekly', label: 'BIWEEKLY' },

@@ -1,14 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import theme from '../config/theme.config';
 import useStore from '../store/useStore';
 import { useExport } from '../hooks/useExport';
-import {
-  BACKUP_PASSPHRASE_MIN_LENGTH,
-  isValidBackupPassphrase,
-  normalizeBackupEncryptionSettings,
-  verifyBackupPassphrase,
-} from '../utils/backupCrypto';
 
 function getAccountRows(accountRegistry, accounts) {
   const registryRows = (accountRegistry || [])
@@ -43,12 +37,7 @@ function CheckRow({ checked, label, description, onPress, disabled = false }) {
 export default function ExportPanel({ destinationLabel = '' }) {
   const accountRegistry = useStore((s) => s.accountRegistry);
   const accounts = useStore((s) => s.accounts);
-  const novaConfig = useStore((s) => s.novaConfig);
   const { exportBundle } = useExport();
-  const backupEncryption = useMemo(
-    () => normalizeBackupEncryptionSettings(novaConfig?.backupEncryption),
-    [novaConfig?.backupEncryption],
-  );
   const accountRows = useMemo(
     () => getAccountRows(accountRegistry, accounts),
     [accountRegistry, accounts],
@@ -61,8 +50,6 @@ export default function ExportPanel({ destinationLabel = '' }) {
   const [accountCsv, setAccountCsv] = useState(false);
   const [accountPdf, setAccountPdf] = useState(false);
   const [businessCsvs, setBusinessCsvs] = useState(false);
-  const [encryptBackups, setEncryptBackups] = useState(backupEncryption.enabled);
-  const [backupPassphrase, setBackupPassphrase] = useState('');
   const [selectedAccountKeys, setSelectedAccountKeys] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -71,10 +58,6 @@ export default function ExportPanel({ destinationLabel = '' }) {
       setSelectedAccountKeys(accountRows.map(account => account.key));
     }
   }, [accountRows.map(account => account.key).join('|')]);
-
-  useEffect(() => {
-    setEncryptBackups(backupEncryption.enabled);
-  }, [backupEncryption.enabled, backupEncryption.passphraseVerifier]);
 
   const toggleAccount = (key) => {
     setSelectedAccountKeys(prev =>
@@ -98,27 +81,6 @@ export default function ExportPanel({ destinationLabel = '' }) {
       return;
     }
 
-    const wantsJsonBackup = fullSystemBackup || householdBackup || businessBackup || accountBackup;
-    const shouldEncryptJson = wantsJsonBackup && encryptBackups;
-    if (shouldEncryptJson) {
-      if (!backupPassphrase.trim()) {
-        Alert.alert('Backup password needed', 'Enter the backup password before exporting encrypted JSON backups.');
-        return;
-      }
-      if (!isValidBackupPassphrase(backupPassphrase)) {
-        Alert.alert('Backup password too short', `Use at least ${BACKUP_PASSPHRASE_MIN_LENGTH} characters for encrypted backups.`);
-        return;
-      }
-      if (backupEncryption.hasPassphrase) {
-        const valid = await verifyBackupPassphrase(backupPassphrase, backupEncryption);
-        if (!valid) {
-          Alert.alert('Wrong backup password', 'The backup password does not match the one saved in Settings.');
-          setBackupPassphrase('');
-          return;
-        }
-      }
-    }
-
     setIsExporting(true);
     await exportBundle({
       fullSystemBackup,
@@ -129,14 +91,10 @@ export default function ExportPanel({ destinationLabel = '' }) {
       accountPdf,
       businessCsvs,
       accountKeys: selectedAccountKeys,
-      encryptBackups: shouldEncryptJson,
-      backupPassphrase: shouldEncryptJson ? backupPassphrase : '',
       destinationLabel,
     });
     setIsExporting(false);
   };
-
-  const wantsJsonBackup = fullSystemBackup || householdBackup || businessBackup || accountBackup;
 
   return (
     <View style={styles.exportSection}>
@@ -184,31 +142,6 @@ export default function ExportPanel({ destinationLabel = '' }) {
             label="Business tax CSVs"
             onPress={() => setBusinessCsvs(value => !value)}
           />
-          <CheckRow
-            checked={encryptBackups}
-            label="Encrypt JSON backups"
-            description={backupEncryption.hasPassphrase
-              ? 'Uses the backup password saved in Settings.'
-              : 'Use an ad hoc password for this export.'}
-            onPress={() => setEncryptBackups(value => !value)}
-            disabled={!wantsJsonBackup}
-          />
-          {wantsJsonBackup && encryptBackups ? (
-            <>
-              <Text style={styles.accountHeader}>BACKUP PASSWORD</Text>
-              <TextInput
-                style={styles.passphraseInput}
-                value={backupPassphrase}
-                onChangeText={setBackupPassphrase}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Required for encrypted JSON backups"
-                placeholderTextColor={theme.textDim}
-              />
-            </>
-          ) : null}
-
           <Text style={styles.accountHeader}>ACCOUNTS</Text>
           {accountRows.length === 0 ? (
             <Text style={styles.emptyText}>No active accounts.</Text>
@@ -310,19 +243,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
     marginTop: theme.spacingSM,
-  },
-  passphraseInput: {
-    backgroundColor: theme.background,
-    borderWidth: 1,
-    borderColor: theme.borderColorDim,
-    borderRadius: theme.borderRadiusSM,
-    color: theme.textPrimary,
-    fontFamily: theme.fontPrimary,
-    fontSize: theme.fontSizeSM,
-    letterSpacing: 0,
-    paddingHorizontal: theme.spacingMD,
-    paddingVertical: theme.spacingSM,
-    marginBottom: theme.spacingSM,
   },
   emptyText: {
     color: theme.textDim,

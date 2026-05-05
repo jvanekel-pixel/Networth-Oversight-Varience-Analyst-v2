@@ -10,7 +10,7 @@ export default function AboutSection() {
     <View>
       <Text style={styles.header}>ABOUT</Text>
       <Text style={styles.appName}>N.O.V.A.</Text>
-      <Text style={styles.version}>Version 1.0.0</Text>
+      <Text style={styles.version}>Version 1.1.1</Text>
       <Text style={styles.credits}>Built by CFLX-01.</Text>
       <Text style={styles.privacy}>
         Your data stays on-device. JSON backups can be imported back into NOVA, and CSV exports can be opened anywhere.

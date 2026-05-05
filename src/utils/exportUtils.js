@@ -53,7 +53,7 @@ export function buildFullJsonExport(allKeys, scope = 'all', extras = {}) {
   }, null, 2);
 }
 
-export function buildExportManifest({ scope = 'all', appVersion = '1.0.0', files = [], exportKind = 'backup', destinationLabel = '' }) {
+export function buildExportManifest({ scope = 'all', appVersion = '1.1.1', files = [], exportKind = 'backup', destinationLabel = '' }) {
   const columnNotes = {
     business_summary: 'Business, Business ID, income/expense/net totals, mileage totals, and mileage deduction totals.',
     business_income: 'ISO date, business name/id, vendor/client source, category, amount dollars/cents, account name/key, notes, receipt filenames, and transaction id.',
@@ -63,7 +63,6 @@ export function buildExportManifest({ scope = 'all', appVersion = '1.0.0', files
     account_csv: 'ISO date, description, category, amount, balance after, payment method, and receipt filenames.',
     account_pdf: 'Human-readable PDF account register with date, description, category, amount, balance after, source, receipt count, and transaction id.',
     json_backup: 'Import-ready NOVA JSON data. Full backups replace all app data; scoped backups merge matching profile data. Receipt images are embedded in the backup and restored into local app storage during import.',
-    encrypted_json_backup: 'Password-protected NOVA backup envelope using AES-256-GCM. Import requires the same backup password.',
   };
   const lines = [
     'N.O.V.A. Export Manifest',
@@ -73,7 +72,7 @@ export function buildExportManifest({ scope = 'all', appVersion = '1.0.0', files
     `Export Kind: ${exportKind}`,
     `Destination: ${destinationLabel || 'Chosen in Android share sheet for this run'}`,
     'Privacy Model: offline-first, no login, no ads, manual records stored on-device.',
-    'Portability: JSON backups can be imported back into NOVA. Encrypted JSON backups require the backup password. CSV files can be opened in spreadsheet or bookkeeping tools.',
+    'Portability: JSON backups can be imported back into NOVA. CSV files can be opened in spreadsheet or bookkeeping tools.',
     '',
     'Included Files:',
     ...(files.length > 0 ? files.map(file => `- ${file}`) : ['- No files listed']),

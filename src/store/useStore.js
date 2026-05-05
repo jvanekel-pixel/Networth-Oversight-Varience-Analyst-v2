@@ -36,12 +36,10 @@ import {
   normalizeSavingsGoals,
 } from '../utils/savingsGoals';
 import {
-  RECURRING_TRANSACTIONS_CARD_ID,
   getNextRecurringDate,
   localDateKey,
   normalizeRecurringTransaction,
 } from '../utils/recurringTransactions';
-import { DEFAULT_BACKUP_ENCRYPTION_SETTINGS } from '../utils/backupCrypto';
 import {
   normalizeReconciliationRecord,
   sortReconciliations,
@@ -108,6 +106,19 @@ const KEYS = {
 
 const SCHEDULED_BILL_CATEGORY = CATEGORY_BILLS;
 const RECEIPT_CARD_ID = 'receipt_attachments';
+const EXPORT_CONFIG_KEY = 'nova_v2_export_config';
+
+function requestAutoExportForChange(amountCents = 0) {
+  AsyncStorage.getItem(EXPORT_CONFIG_KEY).then(raw => {
+    if (!raw) return;
+    const cfg = JSON.parse(raw);
+    const schedule = cfg.schedule || 'off';
+    if (schedule !== 'realtime' && !(schedule === 'significant' && Math.abs(amountCents) >= 10000)) return;
+    import('../hooks/useExport').then(m => {
+      m.useExport().checkAndRunAutoExport();
+    });
+  }).catch(() => {});
+}
 
 const DEFAULT_PERSONAL_CARD_ORDER = [
   'variance',
@@ -116,7 +127,6 @@ const DEFAULT_PERSONAL_CARD_ORDER = [
   'spending_categories',
   'accounts',
   'pay_cycle',
-  RECURRING_TRANSACTIONS_CARD_ID,
   SAVINGS_GOALS_CARD_ID,
   'bills',
   'grocery',
@@ -147,7 +157,6 @@ const DEFAULT_BUSINESS_CARD_ORDER = [
   'spending_chart',
   'spending_categories',
   SAVINGS_GOALS_CARD_ID,
-  RECURRING_TRANSACTIONS_CARD_ID,
   'business_balance',
   'tax_summary',
   RECEIPT_CARD_ID,
@@ -163,7 +172,6 @@ const DEFAULT_DASHBOARD_CARD_ORDER = [
   CASH_FLOW_FORECAST_CARD_ID,
   'charts',
   SAVINGS_GOALS_CARD_ID,
-  RECURRING_TRANSACTIONS_CARD_ID,
   'quick_actions',
   'badges',
   'recent_activity',
@@ -579,7 +587,6 @@ const initialState = {
       lockAfterMs: 0,
       lastChangedAt: null,
     },
-    backupEncryption: DEFAULT_BACKUP_ENCRYPTION_SETTINGS,
     onboardingComplete: false,
     userMode: null,
     entrepreneurMode: false,
@@ -1065,10 +1072,6 @@ const useStore = create((set, get) => ({
         ...initialState.novaConfig.appLock,
         ...(novaConfig?.appLock || {}),
       },
-      backupEncryption: {
-        ...initialState.novaConfig.backupEncryption,
-        ...(novaConfig?.backupEncryption || {}),
-      },
     };
     const resolvedDashboardHiddenCards = Array.isArray(dashboardHiddenCards) ? dashboardHiddenCards : initialState.dashboardHiddenCards;
     let resolvedPersonalHiddenCards = Array.isArray(personalHiddenCards) ? personalHiddenCards : initialState.personalHiddenCards;
@@ -1434,20 +1437,7 @@ const useStore = create((set, get) => ({
         }
       }
     }
-    // Trigger significant-transaction auto-export
-    if (Math.abs(amt) >= 10000) {
-      AsyncStorage.getItem('nova_v2_export_config').then(raw => {
-        if (raw) {
-          const cfg = JSON.parse(raw);
-          if (cfg.schedule === 'significant') {
-            // Lazy import to avoid circular deps
-            import('../hooks/useExport').then(m => {
-              m.useExport().checkAndRunAutoExport();
-            });
-          }
-        }
-      }).catch(() => {});
-    }
+    requestAutoExportForChange(amt);
     get().recomputeVariance();
     const groceryState = getScopedGroceryState(get(), groceryScope);
     const scopedGroceryBudget = groceryState.budget || {};
@@ -1578,6 +1568,7 @@ const useStore = create((set, get) => ({
 
     set(nextState);
     await Promise.all(saves);
+    requestAutoExportForChange();
     return updatedTransactions.find(item => item.id === txId) || null;
   },
 
@@ -1610,6 +1601,7 @@ const useStore = create((set, get) => ({
 
     set(nextState);
     await Promise.all(saves);
+    requestAutoExportForChange();
     return updatedTransactions.find(item => item.id === txId) || null;
   },
 
@@ -3037,7 +3029,7 @@ const useStore = create((set, get) => ({
         accountFloors: state.config?.accountFloors || state.accountFloors || {},
         bills: [...(state.householdBills || []), ...(state.personalBills || [])],
         incomeEvents: state.incomeEvents,
-        recurringTransactions: state.recurringTransactions,
+        recurringTransactions: [],
         groceryBudget: profile === 'personal' ? state.personalGroceryBudget : state.groceryBudget,
         varianceConfig: state.varianceConfig[profile],
         genericBusinessIncome: state.genericBusinessIncome,
@@ -3630,6 +3622,7 @@ const useStore = create((set, get) => ({
     get().awardXP('BUSINESS_INCOME_LOGGED');
     get().incrementBusinessCount('income', amountCents);
     get().checkAndAwardBadge('business_income');
+    requestAutoExportForChange(amountCents);
     get().recomputeVariance();
     get().rotateFlavorTextForEvent('business_income', {
       accountKey,
@@ -3698,6 +3691,7 @@ const useStore = create((set, get) => ({
     get().awardXP('BUSINESS_EXPENSE_LOGGED');
     get().incrementBusinessCount('expense');
     get().checkAndAwardBadge('llc_launched');
+    requestAutoExportForChange(signedAmountCents);
     get().recomputeVariance();
     get().rotateFlavorTextForEvent('business_expense', {
       accountKey,
@@ -3721,6 +3715,7 @@ const useStore = create((set, get) => ({
     await AsyncStorage.setItem(KEYS.genericBusinessMileage, JSON.stringify(genericBusinessMileage));
     get().awardXP('BUSINESS_MILEAGE_LOGGED');
     get().incrementBusinessCount('mileage');
+    requestAutoExportForChange();
     get().recomputeVariance();
     get().rotateFlavorTextForEvent('business_mileage', {
       amountCents: 0,
@@ -3774,6 +3769,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+    requestAutoExportForChange(amountCents);
     get().recomputeVariance();
   },
 
@@ -3793,6 +3789,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+    requestAutoExportForChange();
     get().recomputeVariance();
   },
 
@@ -3843,6 +3840,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+    requestAutoExportForChange(newSigned);
     get().recomputeVariance();
   },
 
@@ -3862,6 +3860,7 @@ const useStore = create((set, get) => ({
       AsyncStorage.setItem(KEYS.transactions, JSON.stringify(updatedTransactions)),
       AsyncStorage.setItem(KEYS.accounts, JSON.stringify(updatedAccounts)),
     ]);
+    requestAutoExportForChange();
     get().recomputeVariance();
   },
 
@@ -3876,6 +3875,7 @@ const useStore = create((set, get) => ({
     });
     set({ genericBusinessMileage });
     await AsyncStorage.setItem(KEYS.genericBusinessMileage, JSON.stringify(genericBusinessMileage));
+    requestAutoExportForChange();
     get().recomputeVariance();
   },
 
@@ -3883,6 +3883,7 @@ const useStore = create((set, get) => ({
     const genericBusinessMileage = (get().genericBusinessMileage || []).map(r => r.id === id ? { ...r, deleted: true } : r);
     set({ genericBusinessMileage });
     await AsyncStorage.setItem(KEYS.genericBusinessMileage, JSON.stringify(genericBusinessMileage));
+    requestAutoExportForChange();
     get().recomputeVariance();
   },
 

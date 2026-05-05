@@ -63,11 +63,6 @@ import {
   isAppLockEnabled,
   normalizeAppLockSettings,
 } from './src/utils/appLock';
-import {
-  getReminderDate,
-  parseLocalDate,
-} from './src/utils/recurringTransactions';
-import { formatCentsShort } from './src/utils/currency';
 import { parseNovaQuickLogUrl } from './src/utils/quickLog';
 
 enableScreens(false);
@@ -104,7 +99,6 @@ const NOTIF_PERM_KEY = 'nova_v2_notif_perm_asked';
 const LAST_ACTIVITY_KEY = 'nova_v2_lastActivityAt';
 const NUDGE_SENT_KEY = 'nova_v2_nudge_sent_at';
 const NOTIFIED_BILLS_KEY = 'nova_v2_notified_bills';
-const NOTIFIED_RECURRING_KEY = 'nova_v2_notified_recurring_transactions';
 const TAB_ICON_BY_NAME = {
   [theme.tabDashboard]: 'dashboard',
   [theme.tabHousehold]: 'household',
@@ -177,25 +171,6 @@ async function scheduleRecurringNotifications(incomeEvents) {
     await schedulePaydayReminder(incomeEvents.nextPaycheckDate);
   }
 
-  if (toggles.recurringTransactionReminder !== false) {
-    const { recurringTransactions } = useStore.getState();
-    const cfg = notificationsConfig.recurringTransactionReminder;
-    for (const item of (recurringTransactions || []).filter(entry => entry && !entry.deleted && entry.isActive !== false && entry.reminderEnabled !== false)) {
-      const reminderDate = getReminderDate(item);
-      const dueDate = parseLocalDate(item.nextDueDate || Date.now());
-      if (!reminderDate || reminderDate.getTime() <= Date.now() || dueDate.getTime() < Date.now()) continue;
-      const when = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      await scheduleCalendarNotification(
-        `recurring_${item.id}`,
-        cfg.title,
-        cfg.body
-          .replace('{itemName}', item.title || 'Recurring item')
-          .replace('{when}', `on ${when}`)
-          .replace('{amount}', formatCentsShort(item.amountCents || 0)),
-        { type: 'date', date: reminderDate },
-      );
-    }
-  }
 }
 
 async function runOneTimeChecks(incomeEvents, checkAndRunAutoExport) {
@@ -280,38 +255,6 @@ async function runOneTimeChecks(incomeEvents, checkAndRunAutoExport) {
     await AsyncStorage.setItem(NOTIFIED_BILLS_KEY, JSON.stringify(notifiedBills));
   }
 
-  if (toggles.recurringTransactionReminder !== false) {
-    const { recurringTransactions } = useStore.getState();
-    const cfg = notificationsConfig.recurringTransactionReminder;
-    const today = new Date();
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const notifiedRaw = await AsyncStorage.getItem(NOTIFIED_RECURRING_KEY);
-    const notifiedItems = notifiedRaw ? JSON.parse(notifiedRaw) : [];
-
-    for (const item of (recurringTransactions || []).filter(entry => entry && !entry.deleted && entry.isActive !== false && entry.reminderEnabled !== false)) {
-      const dueDate = parseLocalDate(item.nextDueDate || Date.now());
-      const daysUntil = Math.round((dueDate.getTime() - todayStart.getTime()) / (24 * 60 * 60 * 1000));
-      if (daysUntil < -7 || daysUntil > Math.max(0, item.reminderDaysBefore ?? 1)) continue;
-      const occurrenceKey = `${item.id}-${item.nextDueDate}`;
-      if (notifiedItems.includes(occurrenceKey)) continue;
-      const when = daysUntil < 0
-        ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? '' : 's'} overdue`
-        : daysUntil === 0
-          ? 'today'
-          : `in ${daysUntil} day${daysUntil === 1 ? '' : 's'}`;
-      await scheduleLocalNotification(
-        `recurring_due_${item.id}`,
-        cfg.title,
-        cfg.body
-          .replace('{itemName}', item.title || 'Recurring item')
-          .replace('{when}', when)
-          .replace('{amount}', formatCentsShort(item.amountCents || 0)),
-        10,
-      );
-      notifiedItems.push(occurrenceKey);
-    }
-    await AsyncStorage.setItem(NOTIFIED_RECURRING_KEY, JSON.stringify(notifiedItems.slice(-500)));
-  }
 }
 
 async function runAppOpenChecks(incomeEvents, checkAndRunAutoExport) {

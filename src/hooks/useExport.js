@@ -23,17 +23,13 @@ import {
 } from '../utils/receiptFiles';
 import { savingsGoalsForScope } from '../utils/savingsGoals';
 import { stripAppLockSecretsFromNovaConfig } from '../utils/appLock';
-import {
-  decryptBackupJson,
-  encryptBackupJson,
-  isEncryptedBackupEnvelope,
-  normalizeBackupEncryptionSettings,
-  stripBackupEncryptionSecretsFromNovaConfig,
-} from '../utils/backupCrypto';
 
 const EXPORT_CONFIG_KEY = 'nova_v2_export_config';
 const NOVA_PREFIX = 'nova_v2_';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.1';
+const AUTO_BACKUP_DIR = `${FileSystem.documentDirectory || ''}nova_backups/`;
+const JSON_MIME = 'application/json';
+const TEXT_MIME = 'text/plain';
 
 const STORAGE = {
   accounts: 'nova_v2_accounts',
@@ -104,6 +100,10 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function timestampStr() {
+  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+
 async function shareFile(uri, mimeType = 'application/octet-stream') {
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
@@ -123,9 +123,8 @@ function sanitizeBackupData(data = {}) {
   if (!data || typeof data !== 'object') return data;
   const sanitized = { ...data };
   if (sanitized[STORAGE.novaConfig]) {
-    sanitized[STORAGE.novaConfig] = stripBackupEncryptionSecretsFromNovaConfig(
-      stripAppLockSecretsFromNovaConfig(sanitized[STORAGE.novaConfig]),
-    );
+    const { backupEncryption, ...safeNovaConfig } = stripAppLockSecretsFromNovaConfig(sanitized[STORAGE.novaConfig]);
+    sanitized[STORAGE.novaConfig] = safeNovaConfig;
   }
   return sanitized;
 }
@@ -427,25 +426,50 @@ function normalizeFileScope(scope) {
   return scope;
 }
 
+async function ensureAutoBackupDirectory() {
+  const info = await FileSystem.getInfoAsync(AUTO_BACKUP_DIR);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(AUTO_BACKUP_DIR, { intermediates: true });
+  }
+}
+
+async function writeManagedBackupFile(fileName, body, mimeType, options = {}) {
+  const cfg = await readExportConfig();
+  const directoryUri = options.backupDirectoryUri || cfg.backupDirectoryUri || null;
+  const useBackupDirectory = options.useBackupDirectory !== false && !!directoryUri;
+  const shouldShare = options.share !== false && !useBackupDirectory;
+
+  if (useBackupDirectory && FileSystem.StorageAccessFramework?.createFileAsync) {
+    const displayName = String(fileName || 'nova_export.json').replace(/[^\w.-]+/g, '_');
+    const uri = await FileSystem.StorageAccessFramework.createFileAsync(directoryUri, displayName, mimeType);
+    await FileSystem.StorageAccessFramework.writeAsStringAsync(uri, body, { encoding: 'utf8' });
+    return { fileName, path: uri, savedToDirectory: true, shared: false };
+  }
+
+  if (options.auto === true) {
+    await ensureAutoBackupDirectory();
+    const path = `${AUTO_BACKUP_DIR}${fileName}`;
+    await FileSystem.writeAsStringAsync(path, body, { encoding: 'utf8' });
+    return { fileName, path, savedToDirectory: false, shared: false };
+  }
+
+  const path = `${FileSystem.cacheDirectory}${fileName}`;
+  await FileSystem.writeAsStringAsync(path, body, { encoding: 'utf8' });
+  if (shouldShare) await shareFile(path, mimeType);
+  return { fileName, path, savedToDirectory: false, shared: shouldShare };
+}
+
 async function writeJsonBackupFile(scope, data, options = {}) {
-  const { share = true, encryptBackups = false, backupPassphrase = '' } = options;
   const backupData = sanitizeBackupData(data);
   const receiptFiles = await collectReceiptFilesForData(backupData);
   const json = buildFullJsonExport(backupData, scope, { receiptFiles });
-  const shouldEncrypt = !!encryptBackups && !!backupPassphrase;
-  const body = shouldEncrypt
-    ? await encryptBackupJson(json, backupPassphrase, { scope, appVersion: APP_VERSION })
-    : json;
-  const fileName = `nova_${normalizeFileScope(scope)}_backup_${todayStr()}${shouldEncrypt ? '_encrypted' : ''}.json`;
-  const path = `${FileSystem.cacheDirectory}${fileName}`;
-  await FileSystem.writeAsStringAsync(path, body, { encoding: 'utf8' });
-  if (share) await shareFile(path, 'application/json');
-  return { fileName, path, encrypted: shouldEncrypt };
+  const fileName = `nova_${normalizeFileScope(scope)}_backup_${timestampStr()}.json`;
+  return writeManagedBackupFile(fileName, json, JSON_MIME, options);
 }
 
 async function writeBackupFile(scope, data, options = {}) {
-  const { fileName, encrypted } = await writeJsonBackupFile(scope, data, options);
-  await writeManifestFile(scope, [fileName], encrypted ? 'encrypted_json_backup' : 'json_backup', options);
+  const { fileName } = await writeJsonBackupFile(scope, data, options);
+  await writeManifestFile(scope, [fileName], 'json_backup', options);
 }
 
 async function writeCsvFile(fileName, csv, { share = true } = {}) {
@@ -466,8 +490,7 @@ async function writePdfFile(fileName, html, { share = true } = {}) {
 }
 
 async function writeManifestFile(scope, files, exportKind, options = {}) {
-  const fileName = `nova_export_manifest_${scope}_${todayStr()}.txt`;
-  const path = `${FileSystem.cacheDirectory}${fileName}`;
+  const fileName = `nova_export_manifest_${scope}_${timestampStr()}.txt`;
   const manifest = buildExportManifest({
     scope,
     appVersion: APP_VERSION,
@@ -475,8 +498,7 @@ async function writeManifestFile(scope, files, exportKind, options = {}) {
     exportKind,
     destinationLabel: options.destinationLabel,
   });
-  await FileSystem.writeAsStringAsync(path, manifest, { encoding: 'utf8' });
-  await shareFile(path, 'text/plain');
+  await writeManagedBackupFile(fileName, manifest, TEXT_MIME, options);
 }
 
 export function useExport() {
@@ -519,18 +541,9 @@ export function useExport() {
       const uri = result.assets[0].uri;
       const raw = await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
       let parsed = JSON.parse(raw);
-      if (isEncryptedBackupEnvelope(parsed)) {
-        if (!options.backupPassphrase) {
-          Alert.alert('Backup password needed', 'Enter the encrypted backup password in Settings before importing this file.');
-          return;
-        }
-        try {
-          const decrypted = await decryptBackupJson(parsed, options.backupPassphrase);
-          parsed = JSON.parse(decrypted);
-        } catch (error) {
-          Alert.alert('Decrypt failed', error.message || 'Could not decrypt this NOVA backup.');
-          return;
-        }
+      if (parsed?.encrypted === true || parsed?.exportType === 'nova_encrypted_backup') {
+        Alert.alert('Encrypted backup not supported', 'Backup encryption was removed in V1.1.1. Import a plain JSON NOVA backup.');
+        return;
       }
       const { valid, reason } = validateImportJson(parsed);
       if (!valid) {
@@ -652,8 +665,6 @@ export function useExport() {
         const data = await readNovaStorage();
         const file = await writeJsonBackupFile('all', data, {
           destinationLabel,
-          encryptBackups: options.encryptBackups,
-          backupPassphrase: options.backupPassphrase,
         });
         fileNames.push(file.fileName);
         await saveExportConfig({ lastExportTimestamp: Date.now(), lastAutoExportDate: todayStr() });
@@ -662,8 +673,6 @@ export function useExport() {
       if (options.householdBackup) {
         const file = await writeJsonBackupFile('household', householdBackupData(state), {
           destinationLabel,
-          encryptBackups: options.encryptBackups,
-          backupPassphrase: options.backupPassphrase,
         });
         fileNames.push(file.fileName);
       }
@@ -671,8 +680,6 @@ export function useExport() {
       if (options.businessBackup) {
         const file = await writeJsonBackupFile('business', businessBackupData(state), {
           destinationLabel,
-          encryptBackups: options.encryptBackups,
-          backupPassphrase: options.backupPassphrase,
         });
         fileNames.push(file.fileName);
       }
@@ -680,8 +687,6 @@ export function useExport() {
       if (options.accountBackup && selectedAccountKeys.length > 0) {
         const file = await writeJsonBackupFile('accounts', selectedAccountsBackupData(state, selectedAccountKeys), {
           destinationLabel,
-          encryptBackups: options.encryptBackups,
-          backupPassphrase: options.backupPassphrase,
         });
         fileNames.push(file.fileName);
       }
@@ -735,23 +740,25 @@ export function useExport() {
       const last = cfg.lastExportTimestamp || 0;
       const elapsed = Date.now() - last;
       const day = 24 * 60 * 60 * 1000;
+      const minute = 60 * 1000;
       const today = todayStr();
       const preciseDates = Array.isArray(cfg.preciseDates)
         ? cfg.preciseDates
         : String(cfg.preciseDates || '').split(',').map(item => item.trim()).filter(Boolean);
       const alreadyRanToday = cfg.lastAutoExportDate === today;
       const shouldRun =
+        (schedule === 'realtime' && elapsed >= minute) ||
         (schedule === 'daily' && !alreadyRanToday && elapsed >= day) ||
         (schedule === 'weekly' && elapsed >= 7 * day) ||
         (schedule === 'precise' && preciseDates.includes(today) && !alreadyRanToday) ||
         (schedule === 'significant' && elapsed >= day);
       if (shouldRun) {
-        const backupEncryption = normalizeBackupEncryptionSettings(useStore.getState().novaConfig?.backupEncryption);
-        if (backupEncryption.enabled) {
-          console.warn('auto export skipped: encrypted backups require a manual backup password entry.');
-          return;
-        }
-        await exportAllData({ destinationLabel: cfg.destinationLabel });
+        await exportAllData({
+          destinationLabel: cfg.destinationLabel,
+          share: false,
+          auto: true,
+          backupDirectoryUri: cfg.backupDirectoryUri,
+        });
         useStore.getState().rotateFlavorTextForEvent?.('auto_export');
       }
     } catch (e) {
@@ -769,5 +776,7 @@ export function useExport() {
     exportBusinessCsvs,
     exportBundle,
     checkAndRunAutoExport,
+    readExportConfig,
+    saveExportConfig,
   };
 }

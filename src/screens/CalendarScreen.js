@@ -14,10 +14,6 @@ import {
   getGroceryReserveForDate,
 } from '../utils/forecasting';
 import { EditBillModal, EditTransactionModal } from '../components/TransactionModal';
-import {
-  getRecurringTransactionEventsBetween,
-  recurringScopeMatches,
-} from '../utils/recurringTransactions';
 
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const CELL_SIZE = Math.floor(Dimensions.get('window').width / 7);
@@ -27,7 +23,6 @@ const CALENDAR_DOT_TYPES = [
   { key: 'tx', label: 'Transactions', color: theme.calendarTransactionColor },
   { key: 'business', label: 'Business', color: theme.calendarBusinessColor },
   { key: 'grocery', label: 'Grocery reserve', color: theme.calendarGroceryColor },
-  { key: 'recurring', label: 'Recurring', color: theme.calendarRecurringColor },
 ];
 const DEFAULT_VISIBLE_DOT_TYPES = CALENDAR_DOT_TYPES.reduce((acc, type) => {
   acc[type.key] = true;
@@ -121,7 +116,7 @@ function billPostingModeLabel(bill) {
   return billAutoPostEnabled(bill) ? 'fixed amount - Auto-Post on' : 'fixed amount - manual confirmation';
 }
 
-function DotGrid({ bill, income, tx, business, grocery, recurring }) {
+function DotGrid({ bill, income, tx, business, grocery }) {
   // Fixed 2×3 grid: top row [bill, income, tx], bottom row [business, grocery, reserved]
   const slots = [
     bill     ? 'bill'     : null,
@@ -129,7 +124,7 @@ function DotGrid({ bill, income, tx, business, grocery, recurring }) {
     tx       ? 'tx'       : null,
     business ? 'business' : null,
     grocery  || null,
-    recurring ? 'recurring' : null,
+    null,
   ];
   const dotStyle = (slot) => {
     if (slot === 'bill')     return styles.dotRed;
@@ -138,7 +133,6 @@ function DotGrid({ bill, income, tx, business, grocery, recurring }) {
     if (slot === 'business') return styles.dotBusiness;
     if (slot === 'groceryDanger' || slot === 'danger') return styles.dotGroceryDanger;
     if (slot === 'grocery' || slot === 'accent') return styles.dotGrocery;
-    if (slot === 'recurring') return styles.dotRecurring;
     return styles.dotEmpty;
   };
   return (
@@ -225,7 +219,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     novaConfig,
     groceryBudget,
     personalGroceryBudget,
-    recurringTransactions,
   } = useStore();
 
   const userMode = novaConfig?.userMode ?? null;
@@ -363,14 +356,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     startMs,
     endMs,
   ]);
-  const recurringEvts = useMemo(() => {
-    const events = getRecurringTransactionEventsBetween(recurringTransactions || [], startMs, endMs);
-    return events.filter(evt => {
-      if (!recurringScopeMatches(evt, mode)) return false;
-      if (!modeAccountKeys) return true;
-      return evt.accountKey && modeAccountKeys.has(evt.accountKey);
-    });
-  }, [recurringTransactions, startMs, endMs, mode, modeAccountKeys]);
   const businessTotalsByDate = useMemo(() => {
     const totals = new Map();
     (businessEvts || []).forEach(evt => {
@@ -415,8 +400,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const selectedIncomeEvts = incomeEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
   const selectedTxEvts = monthTx.filter(t => isSameDayMs(t.timestamp, selectedMs));
   const selectedBusinessEvts = businessEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
-  const selectedRecurringEvts = recurringEvts.filter(e => isSameDayMs(e.dateMs, selectedMs));
-
   const headerLabel = monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const selectedLabel = new Date(viewYear, viewMonth, selectedDay).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -446,8 +429,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const hasIncomeDot = (cellMs) => cellMs && incomeEvts.some(e => isSameDayMs(e.dateMs, cellMs));
   const hasTxDot = (cellMs) => cellMs && monthTx.some(t => isSameDayMs(t.timestamp, cellMs));
   const hasBusinessDot = (cellMs) => cellMs && businessEvts.some(e => isSameDayMs(e.dateMs, cellMs));
-  const hasRecurringDot = (cellMs) => cellMs && recurringEvts.some(e => isSameDayMs(e.dateMs, cellMs));
-
   const getProjectionForCell = (cellMs) => {
     if (!cellMs) return null;
     return projectedBalances.get(dateKeyFromMs(cellMs)) || null;
@@ -494,8 +475,7 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
   const hasScheduledActivity = selectedBillEvts.length > 0 ||
     selectedIncomeEvts.length > 0 ||
     selectedTxEvts.length > 0 ||
-    selectedBusinessEvts.length > 0 ||
-    selectedRecurringEvts.length > 0;
+    selectedBusinessEvts.length > 0;
 
   const touchedAccounts = useMemo(() => {
     const keys = new Set();
@@ -507,9 +487,8 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
     selectedIncomeEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
     selectedTxEvts.forEach(tx => tx.accountKey && keys.add(tx.accountKey));
     selectedBusinessEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
-    selectedRecurringEvts.forEach(evt => evt.accountKey && keys.add(evt.accountKey));
     return keys;
-  }, [selectedBillEvts, selectedIncomeEvts, selectedTxEvts, selectedBusinessEvts, selectedRecurringEvts, allBills]);
+  }, [selectedBillEvts, selectedIncomeEvts, selectedTxEvts, selectedBusinessEvts, allBills]);
 
   const balanceRows = useMemo(() => {
     if (isBusinessMode) {
@@ -674,7 +653,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                       tx={isDotVisible('tx') && hasTxDot(cell.cellMs)}
                       business={isDotVisible('business') && hasBusinessDot(cell.cellMs)}
                       grocery={isDotVisible('grocery') ? getGroceryDotColor(cell.cellMs) : null}
-                      recurring={isDotVisible('recurring') && hasRecurringDot(cell.cellMs)}
                     />
                   )}
                 </View>
@@ -779,16 +757,6 @@ export default function CalendarScreen({ navigation, route, mode: modeProp }) {
                     <Text style={styles.eventMeta}>{evt.accountKey ? accountLabel(evt.accountKey) : 'business activity'}</Text>
                   </View>
                 ))}
-
-                {selectedRecurringEvts.map((evt, i) => {
-                  const sign = evt.direction === 'income' ? '+' : '-';
-                  return (
-                    <View key={`rec${i}`} style={styles.eventRow}>
-                      <Text style={styles.eventText}>{evt.title} - {sign}{formatCentsShort(evt.amountCents || 0)}</Text>
-                      <Text style={styles.eventMeta}>{evt.category || 'recurring'} - {accountLabel(evt.accountKey)}</Text>
-                    </View>
-                  );
-                })}
 
                 {selectedTxEvts.map((tx, i) => {
                   const desc = (tx.description || '').slice(0, 36) || tx.category || 'Transaction';
@@ -993,7 +961,6 @@ const styles = StyleSheet.create({
   dotGreen: { backgroundColor: theme.calendarIncomeColor },
   dotBlue: { backgroundColor: theme.calendarTransactionColor },
   dotBusiness: { backgroundColor: theme.calendarBusinessColor },
-  dotRecurring: { backgroundColor: theme.calendarRecurringColor },
   legendRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

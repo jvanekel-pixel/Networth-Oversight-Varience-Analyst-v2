@@ -15,8 +15,6 @@ import CardOrderSheet from '../components/settings/CardOrderSheet';
 import CardOrderLink from '../components/settings/CardOrderLink';
 import SavingsGoalsCard from '../components/SavingsGoalsCard';
 import { SAVINGS_GOALS_CARD_ID, savingsGoalsForScope } from '../utils/savingsGoals';
-import RecurringTransactionsCard from '../components/RecurringTransactionsCard';
-import { RECURRING_TRANSACTIONS_CARD_ID } from '../utils/recurringTransactions';
 import CashFlowForecastCard from '../components/CashFlowForecastCard';
 import TourCueCard from '../components/TourCueCard';
 import { CASH_FLOW_FORECAST_CARD_ID } from '../utils/forecasting';
@@ -212,13 +210,12 @@ export default function DashboardScreen({ navigation }) {
     .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
     .slice(0, 3);
   const allSavingsGoals = savingsGoalsForScope(savingsGoals);
-  const activeDashboardCardIds = ['variance', CASH_FLOW_FORECAST_CARD_ID, 'charts', SAVINGS_GOALS_CARD_ID, RECURRING_TRANSACTIONS_CARD_ID, 'quick_actions', 'badges', 'recent_activity'];
+  const activeDashboardCardIds = ['variance', CASH_FLOW_FORECAST_CARD_ID, 'charts', SAVINGS_GOALS_CARD_ID, 'quick_actions', 'badges', 'recent_activity'];
   const dashboardDisplayCards = [
     { id: 'variance', label: 'Zone Overview' },
     { id: CASH_FLOW_FORECAST_CARD_ID, label: 'Cash-Flow Forecast' },
     { id: 'charts', label: 'Spending Charts' },
     { id: SAVINGS_GOALS_CARD_ID, label: 'Savings Goals' },
-    { id: RECURRING_TRANSACTIONS_CARD_ID, label: 'Recurring Items' },
     { id: 'quick_actions', label: 'Quick Actions' },
     { id: 'badges', label: 'Achievements' },
     { id: 'recent_activity', label: 'Recent Activity' },
@@ -314,15 +311,6 @@ export default function DashboardScreen({ navigation }) {
         />
       );
     }
-    if (id === RECURRING_TRANSACTIONS_CARD_ID) {
-      return (
-        <RecurringTransactionsCard
-          scope="dashboard"
-          accountOptions={dashboardLogAccountOptions}
-          title="UPCOMING RECURRING ITEMS"
-        />
-      );
-    }
     if (id === 'quick_actions') return renderQuickActionsCard();
     if (id === 'badges') return <BadgePreviewCard badgeState={badgeState} entrepreneurMode={entrepreneurMode} />;
     if (id === 'recent_activity') return renderRecentActivityCard();
@@ -368,7 +356,7 @@ export default function DashboardScreen({ navigation }) {
       <TourCueCard
         cueId="dashboard_overview"
         title="Start here. Then touch everything."
-        body="Dashboard is your command view: cash-flow forecast, spending wheel, recurring items, goals, badges, search, reports, and Customize View. It is not judging you. It is arranging the math."
+        body="Dashboard is your command view: cash-flow forecast, spending wheel, goals, badges, search, reports, and Customize View. It is not judging you. It is arranging the math."
         actionLabel="OPEN REPORTS"
         onAction={() => navigation?.navigate('Reports')}
       />

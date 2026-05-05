@@ -3,10 +3,6 @@ const notifications = {
     title: 'BILL INCOMING',
     body: '{billName} is due in {daysUntil} days. I have been tracking it. You should now also track it.',
   },
-  recurringTransactionReminder: {
-    title: 'RECURRING ITEM',
-    body: '{itemName} is coming up {when}. Amount: {amount}. Acquire/log it, then tell me so I can move the schedule forward.',
-  },
   spendingFloorWarning: {
     title: 'FLOOR APPROACHING',
     body: '{accountName} is at {percentRemaining}% above floor. I am noting this without alarm. You should note it with mild alarm.',

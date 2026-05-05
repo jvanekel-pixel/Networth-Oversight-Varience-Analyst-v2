@@ -14,30 +14,14 @@ import CardOrderLink from '../components/settings/CardOrderLink';
 import SpendingChartsSection from '../components/SpendingChartsSection';
 import SpendingCategoryManagerCard, { getActiveSpendingCategoryNames } from '../components/SpendingCategoryManagerCard';
 import ReceiptAttachmentsCard, { TransactionReceiptModal } from '../components/ReceiptAttachmentsCard';
-import RecurringTransactionsCard from '../components/RecurringTransactionsCard';
 import SavingsGoalsCard from '../components/SavingsGoalsCard';
 import { makeSplitGroupId } from '../utils/splitTransactions';
-import { CATEGORY_BILLS, CATEGORY_SUBSCRIPTIONS, categoryKey } from '../utils/spendingCategories';
-import {
-  RECURRING_TRANSACTIONS_CARD_ID,
-  RECURRING_FREQUENCIES,
-  addRecurringInterval,
-  localDateKey,
-} from '../utils/recurringTransactions';
 import { SAVINGS_GOALS_CARD_ID, savingsGoalsForScope } from '../utils/savingsGoals';
+import { receiptCount } from '../utils/receiptFiles';
 
 const DEFAULT_INCOME_CATEGORY = 'business_income';
 const DEFAULT_EXPENSE_CATEGORY = 'business_expense';
 const DEFAULT_MILEAGE_CATEGORY = 'business_mileage';
-
-function isRecurringExpenseCategory(value) {
-  const key = categoryKey(value);
-  return key === categoryKey(CATEGORY_BILLS) || key === categoryKey(CATEGORY_SUBSCRIPTIONS);
-}
-
-function isValidRecurringFrequency(value) {
-  return RECURRING_FREQUENCIES.some(option => option.value === value);
-}
 
 function Section({ title, children }) {
   return (
@@ -217,49 +201,6 @@ function AddEntryModal({ visible, title, fields, initialValues = {}, submitLabel
                     </TouchableOpacity>
                   </View>
                 </>
-              ) : f.type === 'recurringPrompt' ? (
-                f.when && !f.when(values) ? null : (
-                  <>
-                    <Text style={styles.fieldLabel}>{f.label}</Text>
-                    <View style={styles.chipRow}>
-                      <TouchableOpacity
-                        style={[styles.chip, values.recurringEnabled !== true && styles.chipOn]}
-                        onPress={() => setValues((p) => ({ ...p, recurringEnabled: false }))}
-                      >
-                        <Text style={[styles.chipText, values.recurringEnabled !== true && styles.chipTextOn]}>ONE-OFF</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.chip, values.recurringEnabled === true && styles.chipOn]}
-                        onPress={() => setValues((p) => ({ ...p, recurringEnabled: true }))}
-                      >
-                        <Text style={[styles.chipText, values.recurringEnabled === true && styles.chipTextOn]}>RECURRING</Text>
-                      </TouchableOpacity>
-                    </View>
-                    {values.recurringEnabled === true && (
-                      <>
-                        <Text style={styles.fieldLabel}>FREQUENCY</Text>
-                        <View style={styles.chipRow}>
-                          {RECURRING_FREQUENCIES.map(option => (
-                            <TouchableOpacity
-                              key={option.value}
-                              style={[styles.chip, (values.recurringFrequency || 'monthly') === option.value && styles.chipOn]}
-                              onPress={() => setValues((p) => ({ ...p, recurringFrequency: option.value }))}
-                            >
-                              <Text style={[styles.chipText, (values.recurringFrequency || 'monthly') === option.value && styles.chipTextOn]}>{option.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                        <TextInput
-                          style={styles.input}
-                          value={values.recurringTitle || ''}
-                          onChangeText={(v) => setValues((p) => ({ ...p, recurringTitle: v }))}
-                          placeholder="Calendar name"
-                          placeholderTextColor={theme.textDim}
-                        />
-                      </>
-                    )}
-                  </>
-                )
               ) : f.type === 'split' ? (
                 <>
                   <View style={styles.splitToggleRow}>
@@ -334,7 +275,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const logGenericBusinessIncome = useStore((s) => s.logGenericBusinessIncome);
   const logGenericBusinessExpense = useStore((s) => s.logGenericBusinessExpense);
   const logGenericBusinessMileage = useStore((s) => s.logGenericBusinessMileage);
-  const addRecurringTransaction = useStore((s) => s.addRecurringTransaction);
   const editGenericBusinessIncome = useStore((s) => s.editGenericBusinessIncome);
   const deleteGenericBusinessIncome = useStore((s) => s.deleteGenericBusinessIncome);
   const editGenericBusinessExpense = useStore((s) => s.editGenericBusinessExpense);
@@ -440,25 +380,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
   const cleanText = (value) => String(value || '').trim();
   const isAccountOption = (key) => !!key && accountOptions.some(option => option.key === key);
   const resolveEntryAccountKey = (key) => isAccountOption(key) ? key : defaultAccountKey;
-  const maybeAddRecurringExpense = async (vals, entry, amountCents, accountKey) => {
-    const category = cleanText(entry.category) || DEFAULT_EXPENSE_CATEGORY;
-    if (!vals.recurringEnabled || !isRecurringExpenseCategory(category) || !amountCents || !accountKey) return;
-    const frequency = isValidRecurringFrequency(vals.recurringFrequency) ? vals.recurringFrequency : 'monthly';
-    const startDate = localDateKey(entry.date || Date.now());
-    await addRecurringTransaction({
-      title: cleanText(vals.recurringTitle) || entry.vendor || entry.description || category,
-      amountCents,
-      direction: 'expense',
-      category,
-      accountKey,
-      scope: 'business',
-      frequency,
-      startDate,
-      nextDueDate: localDateKey(addRecurringInterval(startDate, frequency)),
-      reminderEnabled: true,
-      notes: entry.notes,
-    });
-  };
   const getSplitLines = (vals, amountCents, fallbackAccountKey, fallbackCategory) => {
     if (!vals.splitEnabled) return null;
     const oneAmountCents = parseBillInput(vals.splitOneAmount || '0');
@@ -563,7 +484,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
       }
     } else {
       await logGenericBusinessExpense(biz.id, { ...entry, id: `exp_${Date.now()}` });
-      await maybeAddRecurringExpense(vals, entry, amountCents, accountKey);
     }
     return true;
   };
@@ -603,7 +523,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
     SAVINGS_GOALS_CARD_ID,
     'business_balance',
     'tax_summary',
-    RECURRING_TRANSACTIONS_CARD_ID,
     'receipt_attachments',
     ...(biz.trackIncome ? ['income'] : []),
     ...(biz.trackExpenses ? ['expenses'] : []),
@@ -620,7 +539,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
     { id: SAVINGS_GOALS_CARD_ID, label: 'Savings Goals' },
     { id: 'business_balance', label: 'Business Summary' },
     { id: 'tax_summary', label: 'Tax Records' },
-    { id: RECURRING_TRANSACTIONS_CARD_ID, label: 'Recurring Items' },
     { id: 'receipt_attachments', label: 'Receipt Photos' },
     ...(biz.trackIncome ? [{ id: 'income', label: 'Income' }] : []),
     ...(biz.trackExpenses ? [{ id: 'expenses', label: 'Expenses' }] : []),
@@ -707,17 +625,6 @@ export default function BusinessDetailScreen({ route, navigation }) {
         </Section>
       );
     }
-    if (id === RECURRING_TRANSACTIONS_CARD_ID) {
-      return (
-        <View style={styles.cardOrderInset}>
-          <RecurringTransactionsCard
-            scope="business"
-            accountOptions={accountOptions}
-            title="BUSINESS RECURRING ITEMS"
-          />
-        </View>
-      );
-    }
     if (id === 'receipt_attachments') {
       return (
         <ReceiptAttachmentsCard
@@ -734,6 +641,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
           <TouchableOpacity style={styles.addRowBtn} onPress={() => setShowIncomeModal(true)}>
             <Text style={styles.addRowBtnText}>+ ADD INCOME</Text>
           </TouchableOpacity>
+          <Text style={styles.receiptHint}>Tap a saved income row to add or view receipt photos. Long press to edit/delete.</Text>
           {activeIncome.slice(0, 10).map((r, i) => (
             <TouchableOpacity
               key={r.id || i}
@@ -752,7 +660,12 @@ export default function BusinessDetailScreen({ route, navigation }) {
                 <Text style={styles.entryLabel}>{r.clientName || r.description || 'Income'}</Text>
                 <Text style={styles.entryMeta}>{r.category || DEFAULT_INCOME_CATEGORY} - {accountLabel(r.accountKey)}</Text>
               </View>
-              <Text style={[styles.entryAmt, { color: theme.statusPositive }]}>{formatCentsShort(r.amountCents)}</Text>
+              <View style={styles.entrySide}>
+                <Text style={[styles.entryAmt, { color: theme.statusPositive }]}>{formatCentsShort(r.amountCents)}</Text>
+                <Text style={[styles.receiptTag, receiptCount(r) > 0 && styles.receiptTagOn]}>
+                  {receiptCount(r) > 0 ? `${receiptCount(r)} PHOTO${receiptCount(r) === 1 ? '' : 'S'}` : 'ADD RECEIPT'}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))}
           {activeIncome.length === 0 && <Text style={styles.emptyNote}>No income recorded yet.</Text>}
@@ -765,6 +678,7 @@ export default function BusinessDetailScreen({ route, navigation }) {
           <TouchableOpacity style={styles.addRowBtn} onPress={() => setShowExpenseModal(true)}>
             <Text style={styles.addRowBtnText}>+ ADD EXPENSE</Text>
           </TouchableOpacity>
+          <Text style={styles.receiptHint}>Tap a saved expense row to take a receipt photo or upload one from gallery/files.</Text>
           {activeExpenses.slice(0, 10).map((r, i) => (
             <TouchableOpacity
               key={r.id || i}
@@ -783,7 +697,12 @@ export default function BusinessDetailScreen({ route, navigation }) {
                 <Text style={styles.entryLabel}>{r.description || r.vendor || 'Expense'}</Text>
                 <Text style={styles.entryMeta}>{r.category || DEFAULT_EXPENSE_CATEGORY} - {r.taxDeductible === false ? 'not tax deductible' : 'tax deductible'} - {accountLabel(r.accountKey)}</Text>
               </View>
-              <Text style={[styles.entryAmt, { color: theme.statusDanger }]}>{formatCentsShort(r.amountCents)}</Text>
+              <View style={styles.entrySide}>
+                <Text style={[styles.entryAmt, { color: theme.statusDanger }]}>{formatCentsShort(r.amountCents)}</Text>
+                <Text style={[styles.receiptTag, receiptCount(r) > 0 && styles.receiptTagOn]}>
+                  {receiptCount(r) > 0 ? `${receiptCount(r)} PHOTO${receiptCount(r) === 1 ? '' : 'S'}` : 'ADD RECEIPT'}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))}
           {activeExpenses.length === 0 && <Text style={styles.emptyNote}>No expenses recorded yet.</Text>}
@@ -874,14 +793,13 @@ export default function BusinessDetailScreen({ route, navigation }) {
       <AddEntryModal
         visible={showExpenseModal}
         title="ADD EXPENSE"
-        initialValues={{ accountKey: defaultAccountKey, date: dateToday(), category: DEFAULT_EXPENSE_CATEGORY, taxDeductible: true, recurringEnabled: false, recurringFrequency: 'monthly', recurringTitle: '', splitOneAccountKey: defaultAccountKey, splitTwoAccountKey: defaultAccountKey, splitOneCategory: DEFAULT_EXPENSE_CATEGORY, splitTwoCategory: DEFAULT_EXPENSE_CATEGORY }}
+        initialValues={{ accountKey: defaultAccountKey, date: dateToday(), category: DEFAULT_EXPENSE_CATEGORY, taxDeductible: true, splitOneAccountKey: defaultAccountKey, splitTwoAccountKey: defaultAccountKey, splitOneCategory: DEFAULT_EXPENSE_CATEGORY, splitTwoCategory: DEFAULT_EXPENSE_CATEGORY }}
         fields={[
           { key: 'vendor', label: 'VENDOR / CLIENT / PAYEE', placeholder: 'Vendor, store, or payee' },
           { key: 'category', label: 'CATEGORY', type: 'category', options: businessCategoryOptions, placeholder: DEFAULT_EXPENSE_CATEGORY },
           { key: 'taxDeductible', label: 'TAX DEDUCTIBLE?', type: 'toggle', trueLabel: 'YES', falseLabel: 'NO' },
           { key: 'amount', label: 'AMOUNT', placeholder: '0.00', numeric: true },
           { key: 'split', label: 'SPLIT TRANSACTION', type: 'split', amountKey: 'amount', accountOptions, categoryOptions: businessCategoryOptions, defaultAccountKey, defaultCategory: DEFAULT_EXPENSE_CATEGORY },
-          { key: 'recurringPrompt', label: 'ADD TO CALENDAR?', type: 'recurringPrompt', when: (vals) => !vals.splitEnabled && isRecurringExpenseCategory(vals.category) },
           { key: 'accountKey', label: 'PAID FROM', type: 'account', options: accountOptions },
           { key: 'date', label: 'DATE', type: 'date' },
           { key: 'notes', label: 'NOTES / RECEIPT', placeholder: 'Receipt, reason, or supporting detail', multiline: true },
@@ -1022,7 +940,11 @@ const styles = StyleSheet.create({
   entryMain: { flex: 1, marginRight: theme.spacingSM },
   entryLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, flex: 1 },
   entryMeta: { color: theme.textDim, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary, marginTop: 2 },
+  entrySide: { alignItems: 'flex-end', minWidth: 86 },
   entryAmt: { color: theme.textPrimary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, fontWeight: 'bold' },
+  receiptHint: { color: theme.textSecondary, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary, lineHeight: 16, paddingHorizontal: 12, paddingBottom: 8 },
+  receiptTag: { color: theme.textSecondary, fontSize: theme.fontSizeXS, fontFamily: theme.fontPrimary, marginTop: 2 },
+  receiptTagOn: { color: theme.accent },
   emptyNote: { color: theme.textDim, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, padding: 12, fontStyle: 'italic' },
   varianceCard: { marginHorizontal: 16, marginBottom: 16, padding: theme.spacingLG, borderRadius: theme.borderRadiusMD, borderWidth: 2 },
   varianceLabel: { color: theme.textSecondary, fontSize: theme.fontSizeSM, fontFamily: theme.fontPrimary, marginBottom: theme.spacingXS },

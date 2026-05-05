@@ -35,7 +35,11 @@ export function normalizeSavingsGoal(goal = {}, fallback = {}) {
   const label = String(goal.label || preset?.label || fallback.label || 'Savings Goal').trim();
   const targetCents = cleanCents(goal.targetCents ?? goal.amountCents ?? preset?.targetCents ?? fallback.targetCents);
   const accountId = goal.accountId || goal.accountKey || fallback.accountId || null;
-  const hasManualCurrent = goal.currentCents !== undefined || goal.savedCents !== undefined || fallback.currentCents !== undefined;
+  const hasManualCurrent = !accountId && (
+    goal.currentCents !== undefined
+    || goal.savedCents !== undefined
+    || fallback.currentCents !== undefined
+  );
   return {
     id: goal.id || fallback.id || `goal_${now}_${Math.random().toString(36).slice(2, 7)}`,
     key: goal.key || fallback.key || (preset?.key ?? 'custom'),

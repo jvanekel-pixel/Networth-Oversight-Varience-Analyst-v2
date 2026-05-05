@@ -26,7 +26,8 @@ const WORD_NUMBERS = {
 };
 
 const CATEGORY_KEYWORDS = [
-  { category: 'Entertainment/Dining Out', words: ['coffee', 'cafe', 'latte', 'restaurant', 'lunch', 'dinner', 'breakfast', 'takeout', 'doordash', 'ubereats', 'movie'] },
+  { category: 'Dining Out', words: ['coffee', 'cafe', 'latte', 'restaurant', 'lunch', 'dinner', 'breakfast', 'takeout', 'doordash', 'ubereats'] },
+  { category: 'Entertainment', words: ['movie', 'cinema', 'concert', 'show', 'game', 'streaming'] },
   { category: 'Groceries', words: ['grocery', 'groceries', 'market', 'costco', 'walmart', 'aldi', 'produce'] },
   { category: 'Transportation', words: ['gas', 'fuel', 'uber', 'lyft', 'taxi', 'parking', 'train', 'bus'] },
   { category: 'Home', words: ['home', 'hardware', 'cleaning', 'furniture', 'target'] },
