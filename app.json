@@ -24,7 +24,9 @@
       "allowBackup": false,
       "permissions": [
         "android.permission.INTERNET",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ],
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
@@ -54,6 +56,12 @@
         }
       ],
       "./plugins/nova-android-widgets"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "12558c2b-1197-46e3-b0fd-b2c5c033f37d"
+      }
+    },
+    "owner": "copper_felix"
   }
 }
